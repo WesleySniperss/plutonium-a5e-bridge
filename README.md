@@ -275,6 +275,19 @@ game.modules.get('plutonium-a5e').api.diagnose();
 It also runs by itself when Plutonium is not usable, so the reason reaches you
 as a notification rather than as silence.
 
+**If Foundry will not start, or you would rather check from outside it**, the
+same questions are answered from the filesystem alone — no Foundry, no browser,
+no world needed. Run this from the Foundry data folder:
+
+```sh
+node modules/plutonium-a5e/tools/doctor.mjs        # report
+node modules/plutonium-a5e/tools/doctor.mjs --fix  # and repair what it can
+```
+
+It reports on the bridge, libWrapper and Plutonium, says which of your a5e worlds
+have them switched on, and `--fix` writes the manifest patch for you, keeping a
+backup. Add `--data <path>` to check an install somewhere else.
+
 **"Plutonium is missing from the module list."** That is Foundry hiding it, not a
 bug: it hides any module whose `relationships.systems` does not name the active
 system, and it decides that before a single line of module code runs. This bridge
@@ -344,6 +357,7 @@ scripts/
     origins.js       class and subclass metadata, and grant building
   grant-linker.js    wires class and archetype grants to their features
 tools/
+  doctor.mjs         checks an install from outside Foundry, and repairs it
   patch-plutonium-manifest.mjs
   test.mjs           the conversion tests
   foundry-stub.mjs   the slice of Foundry they need

@@ -11,20 +11,37 @@ function route(path) {
   return typeof get === 'function' ? get(path) : `/${path}`;
 }
 
-/** Read Plutonium's manifest over Foundry's own file route. */
-async function readPlutoniumManifest() {
+function asArray(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [...value];
+}
+
+function listsA5e(relationships) {
+  return asArray(relationships?.systems).some((s) => s?.id === 'a5e');
+}
+
+/**
+ * What systems Plutonium's manifest names.
+ *
+ * Foundry parses every manifest at startup and ships the result to the client,
+ * so the package object is the authority. Fetching the file is only a fallback
+ * for when Foundry does not know the package at all — and it must bypass the
+ * HTTP cache, or the browser hands back a copy from before the manifest was
+ * patched and the diagnosis blames the wrong thing.
+ */
+async function readSystems(module) {
+  if (module?.relationships) {
+    return { ok: true, source: 'package data', relationships: module.relationships };
+  }
+
   try {
-    const response = await fetch(route(MANIFEST));
+    const response = await fetch(route(MANIFEST), { cache: 'no-store' });
     if (!response.ok) return { ok: false, status: response.status };
-    return { ok: true, manifest: await response.json() };
+    const manifest = await response.json();
+    return { ok: true, source: 'manifest file', relationships: manifest?.relationships, manifest };
   } catch (e) {
     return { ok: false, error: e };
   }
-}
-
-function listsA5e(manifest) {
-  const systems = manifest?.relationships?.systems ?? [];
-  return systems.some((s) => s?.id === 'a5e');
 }
 
 /**
@@ -51,15 +68,17 @@ export async function diagnose() {
   findings.plutoniumActive = !!module?.active;
   findings.plutoniumApi = !!(module?.api?.salphar?.UtilDocuments ?? globalThis.plutonium?.salphar?.UtilDocuments);
 
-  const read = await readPlutoniumManifest();
+  const read = await readSystems(module);
 
   if (!read.ok) {
-    // The manifest is served by Foundry itself, so a miss means it is not on disk.
+    // Foundry does not know the package and its manifest is not on disk either.
     findings.problems.push('Plutonium does not appear to be installed — no modules/plutonium/module.json.');
     findings.fix = 'Install Plutonium, then re-run this check.';
   } else {
-    findings.plutoniumVersion = read.manifest?.version;
-    findings.plutoniumListsA5e = listsA5e(read.manifest);
+    findings.plutoniumVersion = module?.version;
+    findings.readFrom = read.source;
+    findings.plutoniumSystems = asArray(read.relationships?.systems).map((s) => s?.id).filter(Boolean);
+    findings.plutoniumListsA5e = listsA5e(read.relationships);
 
     if (!findings.plutoniumListsA5e) {
       findings.problems.push(
@@ -88,9 +107,19 @@ export async function diagnose() {
   }
   if (findings.plutoniumInstalled && !findings.plutoniumActive && findings.plutoniumListsA5e) {
     findings.problems.push(
-      'Plutonium is installed and visible to this world, but not enabled. '
-      + 'Turn it on in Manage Modules.',
+      `Plutonium is installed and its manifest is correct (${findings.plutoniumSystems.join(', ')}), `
+      + 'but it is not enabled in this world. Switch it on in Manage Modules.',
     );
+    findings.fix ??= [
+      'Settings → Manage Modules → tick Plutonium → Save Module Settings.',
+      '',
+      'If it is not in that list at all, the Foundry *server* has probably not been',
+      'restarted since the manifest was changed — quit Foundry entirely and start it',
+      'again; reloading the browser is not enough.',
+      '',
+      'To check the install from outside Foundry, run in the Foundry data folder:',
+      '  node modules/plutonium-a5e/tools/doctor.mjs',
+    ].join('\n');
   }
   if (findings.plutoniumActive && !findings.plutoniumApi) {
     findings.problems.push(
