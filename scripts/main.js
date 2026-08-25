@@ -1,5 +1,6 @@
 import { linkPending, rebuildArchetypeGrants, rebuildClassGrants, scheduleLink } from './grant-linker.js';
 import { installPlutoniumBridge } from './bridge.js';
+import { diagnose, reportIfBroken } from './diagnose.js';
 import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from './config-shim.js';
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { registerSettings } from './settings.js';
@@ -28,13 +29,12 @@ Hooks.once('init', () => {
 Hooks.once('ready', () => {
   if (game.system.id !== 'a5e') return;
 
+  // Expose the diagnosis first: when Plutonium is missing, that is the one call
+  // worth having available.
+  game.modules.get(ID).api = { diagnose };
+
   if (!game.modules.get('plutonium')?.active) {
-    if (game.user.isGM) {
-      ui.notifications.warn(
-        'Plutonium ⇄ A5E: Plutonium is not enabled. If it is missing from the module list, add "a5e" to its module.json relationships.systems — see this module\'s README.',
-        { permanent: true },
-      );
-    }
+    reportIfBroken();
     return;
   }
 
@@ -61,6 +61,7 @@ Hooks.once('ready', () => {
   else warn('Plutonium exposes no hooks API — archetype grants will need a manual rebuild.');
 
   game.modules.get(ID).api = {
+    diagnose,
     translateDocument,
     getUnmappedConfigPaths,
     getInstalledStubs,

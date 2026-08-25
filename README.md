@@ -264,6 +264,24 @@ archetype features.
 
 ## Troubleshooting
 
+**Start here.** One call answers most of it — whether Plutonium is installed,
+whether its manifest names a5e, whether it is enabled, whether it finished
+starting, and what to do about whichever of those is wrong:
+
+```js
+game.modules.get('plutonium-a5e').api.diagnose();
+```
+
+It also runs by itself when Plutonium is not usable, so the reason reaches you
+as a notification rather than as silence.
+
+**"Plutonium is missing from the module list."** That is Foundry hiding it, not a
+bug: it hides any module whose `relationships.systems` does not name the active
+system, and it decides that before a single line of module code runs. This bridge
+shows up because it names a5e; Plutonium out of the box names only dnd5e, dnd4e
+and lancer. Install step 1 is what fixes it, and it has to be redone after every
+Plutonium update, because an update replaces the manifest.
+
 Turn on **Verbose conversion logging** in the module settings. It logs every
 converted document, and every `CONFIG.DND5E` path Plutonium asked for that the
 shim does not model — that list is exactly what to add to `KNOWN` in
@@ -313,6 +331,7 @@ scripts/
   main.js            entry point; installs the shim at import time
   config-shim.js     CONFIG.DND5E, the dnd5e global, game.system.config
   spellbook.js       files imported spells under an a5e spell book
+  diagnose.js        works out why Plutonium is not usable, and says so
   patch-targets.js   the stub sheet class Plutonium's libWraps need to resolve
   bridge.js          the four wrapped Plutonium methods
   settings.js
