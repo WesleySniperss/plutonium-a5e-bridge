@@ -23,5 +23,10 @@
   "esmodules": [
     "scripts/main.js"
   ],
-  "socket": false
+  "socket": false,
+  "url": "https://github.com/WesleySniperss/plutonium-a5e-bridge",
+  "readme": "https://github.com/WesleySniperss/plutonium-a5e-bridge#readme",
+  "bugs": "https://github.com/WesleySniperss/plutonium-a5e-bridge/issues",
+  "manifest": "https://raw.githubusercontent.com/WesleySniperss/plutonium-a5e-bridge/main/module.json",
+  "download": "https://github.com/WesleySniperss/plutonium-a5e-bridge/releases/latest/download/module.zip"
 }
