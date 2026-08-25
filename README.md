@@ -299,6 +299,53 @@ curl -sL https://raw.githubusercontent.com/WesleySniperss/plutonium-a5e-bridge/m
 It finds the data folder from the working directory, so that is the only thing
 you have to get right. Restart the Foundry service afterwards.
 
+### Why the bridge cannot do this itself
+
+It is the obvious thing to want, and Foundry rules it out on purpose. A module
+runs in the browser; the only way it could write a file is the upload endpoint,
+and that endpoint refuses this exact file:
+
+```js
+// Foundry's own dist/files/files.mjs
+const o = ["module.json", "system.json", "world.json", "template.json"].includes(e.name.toLowerCase());
+s.overwrite = i && !o;
+```
+
+`module.json` is blacklisted from being overwritten, so no module — this one
+included — can patch another module's manifest from inside Foundry. It has to
+happen on the server's filesystem.
+
+### Keeping it patched across Plutonium updates
+
+Updating Plutonium replaces its manifest and drops the line again. Rather than
+remember, have the server re-apply it every time Foundry starts. Download the
+script once:
+
+```sh
+curl -sLo /path/to/foundrydata/patch-a5e.mjs   https://raw.githubusercontent.com/WesleySniperss/plutonium-a5e-bridge/main/tools/doctor.mjs
+```
+
+**systemd** — `sudo systemctl edit foundryvtt`, then:
+
+```ini
+[Service]
+ExecStartPre=-/usr/bin/node /path/to/foundrydata/patch-a5e.mjs --fix --data /path/to/foundrydata
+```
+
+The leading `-` matters: it tells systemd to start Foundry even if the check
+fails, so a bad path can never leave you with no server.
+
+**Docker** — run it against the mounted data volume before starting the
+container, or add it to whatever entrypoint wrapper you already use.
+
+**Anything else** — `crontab -e` and:
+
+```sh
+@reboot /usr/bin/node /path/to/foundrydata/patch-a5e.mjs --fix --data /path/to/foundrydata
+```
+
+It is idempotent: when the line is already there it changes nothing and exits 0.
+
 **"Plutonium is missing from the module list."** That is Foundry hiding it, not a
 bug: it hides any module whose `relationships.systems` does not name the active
 system, and it decides that before a single line of module code runs. This bridge
