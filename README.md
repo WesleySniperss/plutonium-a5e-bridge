@@ -288,6 +288,17 @@ It reports on the bridge, libWrapper and Plutonium, says which of your a5e world
 have them switched on, and `--fix` writes the manifest patch for you, keeping a
 backup. Add `--data <path>` to check an install somewhere else.
 
+**On a server you reach over SSH**, there is nothing to install first — run it
+straight from the Foundry data folder:
+
+```sh
+cd /path/to/foundrydata   # the folder holding Config/ Data/ Logs/
+curl -sL https://raw.githubusercontent.com/WesleySniperss/plutonium-a5e-bridge/main/tools/doctor.mjs | node - --fix
+```
+
+It finds the data folder from the working directory, so that is the only thing
+you have to get right. Restart the Foundry service afterwards.
+
 **"Plutonium is missing from the module list."** That is Foundry hiding it, not a
 bug: it hides any module whose `relationships.systems` does not name the active
 system, and it decides that before a single line of module code runs. This bridge

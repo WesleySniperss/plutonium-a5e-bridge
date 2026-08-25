@@ -11,10 +11,19 @@ import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } fr
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url));
+// `import.meta.url` is not a real path when the script is piped in, which is how
+// it is run on a remote server:
+//   curl -sL <raw url>/tools/doctor.mjs | node - --fix
+let here = null;
+try { here = dirname(fileURLToPath(import.meta.url)); } catch { /* piped in */ }
+
 const args = process.argv.slice(2);
 const doFix = args.includes('--fix');
-const dataArg = args[args.indexOf('--data') + 1];
+// `indexOf` returns -1 when the flag is absent, and -1 + 1 is 0 — which would
+// quietly take the *first* argument as the path, so `--fix` alone was read as a
+// folder name. Only look for a value when the flag is actually there.
+const dataIndex = args.indexOf('--data');
+const dataArg = dataIndex >= 0 ? args[dataIndex + 1] : null;
 
 const problems = [];
 const notes = [];
@@ -35,30 +44,63 @@ function readJson(path) {
  * root is four levels up. `--data` overrides it, and Config/options.json is
  * consulted in case Foundry was pointed somewhere else entirely.
  */
+/** Does this look like a Foundry user-data folder, or the Data folder inside one? */
+function modulesUnder(root) {
+  for (const candidate of [join(root, 'Data', 'modules'), join(root, 'modules')]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 function findModulesDir() {
   if (dataArg) {
-    const fromArg = resolve(dataArg);
-    for (const candidate of [join(fromArg, 'Data', 'modules'), join(fromArg, 'modules')]) {
-      if (existsSync(candidate)) return candidate;
-    }
-    console.error(`No modules folder under ${fromArg}`);
+    const found = modulesUnder(resolve(dataArg));
+    if (found) return found;
+    console.error(`No modules folder under ${resolve(dataArg)}`);
     process.exit(1);
   }
 
-  const guess = resolve(here, '..', '..');
-  if (existsSync(join(guess, 'plutonium-a5e'))) {
-    // Foundry may be configured to read a different folder than the one we sit in.
-    const options = readJson(resolve(guess, '..', '..', 'Config', 'options.json'));
-    const configured = options?.dataPath ? join(options.dataPath, 'Data', 'modules') : null;
-    if (configured && existsSync(configured) && resolve(configured) !== resolve(guess)) {
-      info(`Foundry is configured to read ${configured}, not ${guess} — checking both.`);
-      return configured;
+  // Installed alongside the other modules: <userData>/Data/modules/plutonium-a5e/tools
+  if (here) {
+    const guess = resolve(here, '..', '..');
+    if (existsSync(join(guess, 'plutonium-a5e'))) {
+      // Foundry may be configured to read a different folder than the one we sit in.
+      const options = readJson(resolve(guess, '..', '..', 'Config', 'options.json'));
+      const configured = options?.dataPath ? join(options.dataPath, 'Data', 'modules') : null;
+      if (configured && existsSync(configured) && resolve(configured) !== resolve(guess)) {
+        info(`Foundry is configured to read ${configured}, not ${guess} — checking that one.`);
+        return configured;
+      }
+      return guess;
     }
-    return guess;
+  }
+
+  // Piped in, or run from somewhere else: try the working directory, then the
+  // places a Linux install usually keeps its data.
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const candidates = [
+    process.cwd(),
+    resolve(process.cwd(), '..'),
+    join(home, 'foundrydata'),
+    join(home, 'foundryuserdata'),
+    join(home, '.local', 'share', 'FoundryVTT'),
+    '/data',
+    '/foundrydata',
+    '/home/foundry/foundrydata',
+  ];
+
+  for (const root of candidates) {
+    if (!root) continue;
+    const found = modulesUnder(root);
+    if (found) {
+      info(`Found a Foundry data folder at ${root}`);
+      return found;
+    }
   }
 
   console.error('Could not work out where the modules folder is.');
-  console.error('Run this from inside the installed module, or pass --data <Foundry user data folder>.');
+  console.error('Run this from the Foundry data folder, or pass --data <path to it>.');
+  console.error('That is the folder holding Config/, Data/ and Logs/.');
   process.exit(1);
 }
 
