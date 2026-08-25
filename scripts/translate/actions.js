@@ -21,6 +21,21 @@ import {
 
 const id = () => foundry.utils.randomID();
 
+/**
+ * a5e has no "+1 weapon" field — its own magic items write the bonus straight
+ * into the formula (its +2 plate is literally `"18 + 2"`). dnd5e keeps it apart
+ * in `system.magicalBonus`, so folding it in here is what makes an imported +1
+ * longsword actually hit and hurt for one more.
+ */
+export function withMagic(value, magic) {
+  const bonus = Number(magic) || 0;
+  if (!bonus) return String(value ?? '');
+
+  const base = String(value ?? '').trim();
+  if (!base) return String(bonus);
+  return bonus > 0 ? `${base} + ${bonus}` : `${base} - ${Math.abs(bonus)}`;
+}
+
 /** dnd5e damage part -> a dice formula string. */
 export function damageFormula(part) {
   if (!part) return '';
@@ -104,7 +119,9 @@ function attackBonusOf(attack, ability, ctx) {
   return delta ? String(delta) : '';
 }
 
-function addDamageRolls(rolls, parts, { isSpell, canCrit = true, critBonus = '', impliedAbility = null }) {
+function addDamageRolls(rolls, parts, {
+  isSpell, canCrit = true, critBonus = '', impliedAbility = null, magicBonus = 0,
+}) {
   (parts ?? []).forEach((part) => {
     let formula = damageFormula(part);
     if (!formula) return;
@@ -114,6 +131,7 @@ function addDamageRolls(rolls, parts, { isSpell, canCrit = true, critBonus = '',
     // Statblock damage already carries a flat bonus, and is left exactly as-is.
     const hasBonus = !!String(part.bonus ?? '').trim() || part.custom?.enabled;
     if (impliedAbility && !hasBonus) formula = `${formula} + @${impliedAbility}.mod`;
+    formula = withMagic(formula, magicBonus);
 
     rolls[id()] = {
       ...rollBase(''),
@@ -316,7 +334,7 @@ export function activityToAction(activity, opts = {}) {
         type: 'attack',
         attackType: attackTypeOf(activity.attack),
         ability,
-        bonus: attackBonusOf(activity.attack, ability, opts),
+        bonus: withMagic(attackBonusOf(activity.attack, ability, opts), opts.magicBonus),
         critThreshold: Number(activity.attack?.critical?.threshold) || 20,
         proficient: true,
       };
@@ -324,6 +342,7 @@ export function activityToAction(activity, opts = {}) {
         isSpell,
         critBonus: activity.damage?.critical?.bonus ?? '',
         impliedAbility: opts.isWeapon ? ability : null,
+        magicBonus: opts.magicBonus,
       });
       break;
     }

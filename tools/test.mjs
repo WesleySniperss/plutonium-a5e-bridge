@@ -17,7 +17,7 @@ installFoundryStub();
 
 const { translateDocument, pruneUpdate } = await import('../scripts/translate/index.js');
 const { actorRollContext } = await import('../scripts/translate/actor.js');
-const { convertUses } = await import('../scripts/translate/actions.js');
+const { convertUses, withMagic } = await import('../scripts/translate/actions.js');
 const origins = await import('../scripts/translate/origins.js');
 const { buildFeatureGrants, parseClassFeatureHash, parseSubclassFeatureHash } = origins;
 const { assignSpellBooks, attachSpellBook, spellBookIdOf } = await import('../scripts/spellbook.js');
@@ -508,6 +508,83 @@ test('spell: casting it spends a slot, and upcasting scales', () => {
   assert.equal(first(action.prompts).saveDC.type, 'spellcasting');
   assert.equal(action.area.shape, 'sphere');
   assert.equal(action.area.radius, 20);
+});
+
+test('spell: dnd5e 5.x keeps preparation in method + prepared', () => {
+  // This is the shape Plutonium's import customizer actually writes. Reading
+  // only the older `preparation` block left every imported spell unprepared.
+  const modern = (system) => translateDocument('Item', {
+    ...fireball,
+    system: { ...fireball.system, preparation: undefined, ...system },
+  }).system.prepared;
+
+  assert.equal(modern({ method: 'prepared', prepared: 1 }), 1);
+  assert.equal(modern({ method: 'prepared', prepared: 0 }), 0);
+  assert.equal(modern({ method: 'innate', prepared: 0 }), 2, 'innate spells are always available');
+  assert.equal(modern({ method: 'atwill', prepared: 0 }), 2);
+  assert.equal(modern({ method: 'pact', prepared: 0 }), 2, 'a warlock always has its pact spells');
+  assert.equal(modern({ method: '', prepared: 0 }), 0);
+});
+
+test('spell: the older preparation block is still understood', () => {
+  assert.equal(translateDocument('Item', fireball).system.prepared, 1);
+});
+
+// --- magic items ------------------------------------------------------------
+//
+// a5e has no magic-bonus field: its own +2 plate is stored as the formula
+// "18 + 2". dnd5e keeps the bonus apart in `system.magicalBonus`, so it has to
+// be folded in or an imported +1 sword hits and hurts for nothing extra.
+
+test('magic weapon: the bonus reaches both the attack and the damage', () => {
+  const plusOne = translateDocument('Item', {
+    ...longsword,
+    name: 'Longsword +1',
+    system: { ...longsword.system, magicalBonus: 1 },
+  });
+  const action = first(plusOne.system.actions);
+
+  assert.equal(rollsOfType(action, 'attack')[0].bonus, '1');
+  assert.equal(rollsOfType(action, 'damage')[0].formula, '1d8 + @str.mod + 1');
+});
+
+test('magic weapon: a plain one is untouched', () => {
+  const action = first(translateDocument('Item', longsword).system.actions);
+  assert.equal(rollsOfType(action, 'attack')[0].bonus, '');
+  assert.equal(rollsOfType(action, 'damage')[0].formula, '1d8 + @str.mod');
+});
+
+test('magic armour: the bonus goes into the AC formula, a5e style', () => {
+  const plusTwo = translateDocument('Item', {
+    ...chainMail,
+    name: 'Plate +2',
+    system: { ...chainMail.system, armor: { value: 18, dex: null, magicalBonus: 2 } },
+  });
+  assert.equal(plusTwo.system.ac.baseFormula, '18 + 2');
+});
+
+test('magic armour: a dex-capped one keeps its modifier term', () => {
+  const plusOne = translateDocument('Item', {
+    ...halfPlate,
+    system: { ...halfPlate.system, armor: { value: 15, dex: 2, magicalBonus: 1 } },
+  });
+  assert.equal(plusOne.system.ac.baseFormula, '15 + 1 + @dex.mod');
+  assert.equal(plusOne.system.ac.maxDex, 2);
+});
+
+test('magic shield: still adds rather than replaces', () => {
+  const plusOne = translateDocument('Item', {
+    ...shield,
+    system: { ...shield.system, armor: { value: 2, dex: null, magicalBonus: 1 } },
+  });
+  assert.equal(plusOne.system.ac.baseFormula, '2 + 1');
+  assert.equal(plusOne.system.ac.mode, 1);
+});
+
+test('magic bonus: folding handles nothing, a blank base, and a penalty', () => {
+  assert.equal(withMagic('1d8', 0), '1d8');
+  assert.equal(withMagic('', 2), '2', 'a bare bonus needs no leading plus');
+  assert.equal(withMagic('1d8', -1), '1d8 - 1', 'cursed items exist');
 });
 
 // --- subclasses -------------------------------------------------------------

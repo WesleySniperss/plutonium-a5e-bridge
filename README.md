@@ -54,11 +54,11 @@ Install, step 1.
 | --- | --- | --- |
 | Creatures / NPCs | `npc` actor | Works. Abilities, AC, HP, hit dice, speeds, senses, skills, saves, traits, immunities, languages, CR, legendary/lair resources. |
 | Creature actions & traits | `feature` items with actions | Works. Attacks get an a5e attack roll + damage roll; save effects get a saving-throw prompt; recharge is mapped to a5e uses. |
-| Items, weapons, armour, gear | `object` items | Works. Object type, AC formula and dex cap, price, weight, rarity, attunement, weapon/material properties, versatile die, actions. |
+| Items, weapons, armour, gear | `object` items | Works. Object type, AC formula and dex cap, price, weight, rarity, attunement, weapon/material properties, versatile die, actions. A magic bonus is folded into the attack, the damage or the AC formula, since a5e has no field for it. |
 | Spells | `spell` items | Works. Level, school, components, materials, ritual/concentration, upcast scaling, save prompt, and a spell-slot consumer so casting actually spends a slot. On an actor they are filed under a spell book — a5e refuses to create one otherwise. |
 | Feats and optional features | `feature` items | Works as text plus any rollable action. No a5e grants. |
 | Tokens | unchanged | Works. Prototype tokens are core Foundry data, and Plutonium takes bars, vision and disposition from its own config, defaulting to your world's default token — so nothing dnd5e-shaped rides along. |
-| Journals, adventures, books, roll tables, scenes, maps | unchanged | Works — these are system-agnostic. |
+| Maps, scenes, journals, adventures, books, roll tables, decks of cards | unchanged | Works. The bridge only rewrites Actors and Items; everything else is core Foundry data and is passed through exactly as Plutonium built it. |
 | **Subclasses** | `archetype` + levelled feature grants | **Works, including automatic features on level-up.** See below. |
 | **Classes** | `class` + levelled feature grants | **Features work, including on level-up.** Proficiencies, ASIs and spell slots do not — see below. |
 | Backgrounds, races | `background` / `heritage` | **Text only.** See below. |
@@ -232,6 +232,9 @@ Other known losses:
   puts any remainder in the roll's bonus field. It always adds up; the ability
   shown may occasionally not be the one the designer intended.
 - **Adamantine** has no a5e property and survives only in the description text.
+- **A spell's method becomes a preparation state.** dnd5e distinguishes at-will,
+  innate, pact and prepared casting; a5e has only unprepared / prepared / always
+  prepared. Anything permanently available lands on "always prepared".
 - Base-item identity (`system.type.baseItem`) is dropped — a5e has no equivalent.
 - **Plutonium's Polymorpher does not work here.** It drives dnd5e's own
   `TransformDialog` and its `transformationSettings` setting, neither of which

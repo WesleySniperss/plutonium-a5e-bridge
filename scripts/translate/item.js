@@ -1,4 +1,4 @@
-import { activitiesToActions, convertUses } from './actions.js';
+import { activitiesToActions, convertUses, withMagic } from './actions.js';
 import {
   EQUIPMENT_SUBTYPE,
   FEATURE_TYPE,
@@ -94,10 +94,13 @@ function armorOf(data, kind) {
   const declared = Number(system.armor?.dex);
   const maxDex = declared > 0 ? declared : (kind.armorCategory === 'medium' ? 2 : 0);
 
+  // a5e has no magic-bonus field; its own +2 plate is stored as "18 + 2".
+  const withBonus = withMagic(base, system.armor?.magicalBonus);
+
   return {
     // Shields add to AC; body armour replaces the base formula.
     mode: isShield ? 1 : 2,
-    baseFormula: usesDex ? `${base} + @dex.mod` : String(base),
+    baseFormula: usesDex ? `${withBonus} + @dex.mod` : withBonus,
     formula: '',
     maxDex: usesDex ? maxDex : 0,
     minStr: Number(system.strength) || 0,
@@ -158,6 +161,7 @@ function toObject(data, ctx) {
       img: data.img,
       ...ctx,
       isWeapon: kind.objectType === 'weapon',
+      magicBonus: Number(system.magicalBonus) || 0,
     }),
   };
 
@@ -182,12 +186,21 @@ function toObject(data, ctx) {
 
 // --- spells ----------------------------------------------------------------
 
-// Both systems encode preparation as 0 unprepared / 1 prepared / 2 always. dnd5e
-// splits it across `preparation.mode` and `preparation.prepared`.
+// Both systems encode preparation as 0 unprepared / 1 prepared / 2 always.
+//
+// dnd5e 5.x splits it in two: `system.method` says *how* the spell is available,
+// and `system.prepared` is the toggle. Earlier dnd5e nested both under
+// `system.preparation`, so that shape is read as a fallback — Plutonium's import
+// customizer writes the 5.x one, and reading only the old shape left every
+// imported spell unprepared.
+const ALWAYS_AVAILABLE = new Set(['always', 'atwill', 'innate', 'pact']);
+
 function preparedStateOf(system) {
-  const prep = system?.preparation ?? {};
-  if (prep.mode === 'always' || prep.mode === 'innate' || prep.mode === 'atwill') return 2;
-  const prepared = Number(prep.prepared);
+  const legacy = system?.preparation ?? {};
+  const method = system?.method || legacy.mode || '';
+  if (ALWAYS_AVAILABLE.has(method)) return 2;
+
+  const prepared = Number(system?.prepared ?? legacy.prepared);
   return Number.isFinite(prepared) ? Math.min(2, Math.max(0, prepared)) : 0;
 }
 
