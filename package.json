@@ -1,0 +1,9 @@
+{
+  "name": "plutonium-a5e",
+  "private": true,
+  "type": "module",
+  "description": "Tooling only. Foundry loads scripts/main.js directly and ignores this file.",
+  "scripts": {
+    "test": "node tools/test.mjs"
+  }
+}
