@@ -397,6 +397,20 @@ async function handoverToActor(owner, features) {
     debug(`Removed ${ids.length} duplicate feature item(s) from "${actor.name}".`);
   }
 
+  // a5e opens its "Apply Grants" dialog whenever the item it is applying is a
+  // class — unconditionally, not just when something needs choosing:
+  //
+  //   let a = n.cls && n.item.type === "class", s = i || !!t.length || a || o;
+  //   if (s) { ...GenericConfigDialog(`${actor.name} - Apply Grants (...)`)... }
+  //
+  // During an import that is a modal in the middle of a batch, for grants that
+  // ask nothing. The class's features arrive on the next level change anyway —
+  // through a5e's own routine, or a5e-mancer's — so it is left to that.
+  if (kindOf(owner) === KINDS.class) {
+    log(`"${owner.name}" is wired up; its features will be applied on the next level change.`);
+    return;
+  }
+
   try {
     await actor.grants?.createInitialGrants?.(actor.items.get(owner.id) ?? owner);
     log(`a5e applied "${owner.name}" grants to "${actor.name}".`);
