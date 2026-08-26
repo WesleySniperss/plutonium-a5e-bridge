@@ -11,6 +11,7 @@ import { diagnose, report, reportIfBroken } from './diagnose.js';
 import { repairUseConsumers } from './repair.js';
 import { runMigrations } from './migrate.js';
 import { applyClassManeuvers, maneuverTemplates, setClassManeuvers } from './mancer-classes.js';
+import { checkImporterApi, importOnto, installActorImportMenu } from './actor-import.js';
 import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from './config-shim.js';
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { registerSettings } from './settings.js';
@@ -79,6 +80,7 @@ Hooks.once('ready', () => {
     installPlutoniumBridge,
     adoptExistingFeatures,
     openFeatureImporter,
+    importOnto,
     setClassManeuvers,
     maneuverTemplates,
     repairUseConsumers,
@@ -92,6 +94,11 @@ Hooks.once('ready', () => {
 
   // Teach a5e-mancer about any imported classes the GM has given maneuvers to.
   applyClassManeuvers();
+
+  // Plutonium's own sheet buttons cannot appear under a5e; give the importer
+  // another way in.
+  installActorImportMenu();
+  checkImporterApi();
 
   log('Ready.');
 });

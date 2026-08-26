@@ -226,6 +226,26 @@ api.rebuildArchetypeGrants('Item.abc123');
 api.rebuildClassGrants('Item.def456');
 ```
 
+### Importing onto a character
+
+Plutonium's own sheet buttons hang off dnd5e's character sheet class, which under
+a5e is the stub this bridge installs — so the "import onto this character" route
+its documentation recommends has nowhere to appear. The importer itself does not
+care which system is running: `ChooseImporter.pOpen({actor, modeId})` is exactly
+what those buttons call.
+
+So it is reachable two other ways. **Right-click a character in the actor
+directory** — "Import onto this actor (Plutonium)" — or:
+
+```js
+const api = game.modules.get('plutonium-a5e').api;
+api.importOnto(actor, 'class');     // class | feature | optional | spell | item | feat
+```
+
+This is the route worth using for classes, because the Charactermancer sets the
+character up the way Plutonium intends — proficiencies included, which this
+bridge now translates.
+
 ### Combat maneuvers for an imported class
 
 a5e-mancer decides whether a class gets maneuvers by looking its name up in a
