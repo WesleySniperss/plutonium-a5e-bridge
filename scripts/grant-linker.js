@@ -341,7 +341,7 @@ async function linkOne(owner, kind, features) {
   const previous = flagsOf(owner)?.grantIds ?? [];
   const stale = previous.filter((id) => owner.system?.grants?.[id]);
   if (stale.length) {
-    await owner.update(Object.fromEntries(stale.map((id) => [`system.grants.-=${id}`, null])));
+    await owner.update(Object.fromEntries(stale.map((id) => deletionEntry('system.grants', id))));
   }
 
   await owner.update({
@@ -356,6 +356,20 @@ async function linkOne(owner, kind, features) {
 
   await publishOwner(owner, kind);
   return true;
+}
+
+/**
+ * How to say "remove this key" in an update.
+ *
+ * Foundry 14 deprecated the `-=key` prefix in favour of an explicit operator,
+ * and warns once per key — which for a class with a dozen grants filled the
+ * console with red on every rebuild. The old form still works, so it is kept as
+ * a fallback for anything older.
+ */
+function deletionEntry(path, id) {
+  const ForcedDeletion = foundry?.data?.operators?.ForcedDeletion;
+  if (ForcedDeletion) return [`${path}.${id}`, new ForcedDeletion()];
+  return [`${path}.-=${id}`, null];
 }
 
 /** Copy a class or archetype into the module's compendium, so the builder sees it. */
