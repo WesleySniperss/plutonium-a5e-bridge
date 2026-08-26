@@ -1,4 +1,5 @@
 import { actorRollContext, translateActor } from './actor.js';
+import { ARMOR_PROFICIENCY, WEAPON_PROFICIENCY, mapProficiencies } from './maps.js';
 import { translateItem } from './item.js';
 import { attachSpellBook, spellBookIdOf } from '../spellbook.js';
 import { debug, error } from '../util/log.js';
@@ -62,22 +63,73 @@ function safe(fn, fallback, label) {
   }
 }
 
-/**
- * Drop `system.*` keys the target document's schema does not know about.
- * Plutonium issues follow-up updates in dnd5e terms (activities, advancement,
- * preparation…); dropping them keeps the update valid instead of throwing.
- */
-// A handful of dnd5e update paths have a real a5e counterpart at a different
-// shape, and are worth carrying over rather than dropping. dnd5e's experience is
-// an object (`{value, min, max, pct}`); a5e's `details.xp` is a plain number, and
-// `value` is the one that means "experience so far".
-const REMAP = {
-  'system.details.xp.value': 'system.details.xp',
+// Update paths that have a real a5e counterpart under a different name or shape.
+// Without these the value is simply dropped, which is what made importing a class
+// onto a character lose everything its Charactermancer asked about — the skills,
+// saves, armour and weapons it hands out are all written in dnd5e's vocabulary.
+//
+// `$1` in a target picks up the first capture, so one rule covers all six
+// abilities or all eighteen skills.
+const UPDATE_RULES = [
+  // dnd5e experience is an object; a5e's `details.xp` is a plain number, and
+  // `value` is the one that means "experience so far".
+  { from: /^system\.details\.xp\.value$/, to: 'system.details.xp' },
+
   // Plutonium sets a class's level after creating it — under a different name in
   // a5e, where it is what decides which grants have been reached.
-  'system.levels': 'system.classLevels',
-};
+  { from: /^system\.levels$/, to: 'system.classLevels' },
 
+  // a5e derives `hp.max`; `baseMax` is the one that is written.
+  { from: /^system\.attributes\.hp\.max$/, to: 'system.attributes.hp.baseMax' },
+
+  {
+    from: /^system\.traits\.armorProf\.value$/,
+    to: 'system.proficiencies.armor',
+    value: (v) => mapProficiencies(v, ARMOR_PROFICIENCY),
+  },
+  {
+    from: /^system\.traits\.weaponProf\.value$/,
+    to: 'system.proficiencies.weapons',
+    value: (v) => mapProficiencies(v, WEAPON_PROFICIENCY),
+  },
+  {
+    from: /^system\.traits\.languages\.value$/,
+    to: 'system.proficiencies.languages',
+    value: (v) => [v ?? []].flat(),
+  },
+
+  // dnd5e grades a skill 0 / 0.5 / 1 / 2; a5e has no half-proficiency.
+  {
+    from: /^system\.skills\.([a-z]{3})\.value$/,
+    to: 'system.skills.$1.proficient',
+    value: (v) => (Number(v) >= 2 ? 2 : Number(v) >= 1 ? 1 : 0),
+  },
+
+  // dnd5e keeps save proficiency on the ability; a5e keeps it on the save.
+  {
+    from: /^system\.abilities\.([a-z]{3})\.proficient$/,
+    to: 'system.abilities.$1.save.proficient',
+    value: (v) => Number(v) >= 1,
+  },
+];
+
+function remap(key, value) {
+  for (const rule of UPDATE_RULES) {
+    const match = key.match(rule.from);
+    if (!match) continue;
+
+    const to = rule.to.replace(/\$(\d)/g, (_, index) => match[Number(index)]);
+    return [to, rule.value ? rule.value(value) : value];
+  }
+  return [key, value];
+}
+
+/**
+ * Drop `system.*` keys the target document's schema does not know about, after
+ * rewriting the ones that do have an a5e counterpart. Plutonium issues follow-up
+ * updates in dnd5e terms (activities, advancement, proficiencies…); dropping
+ * what does not translate keeps the update valid instead of throwing.
+ */
 export function pruneUpdate(doc, update) {
   const schema = doc?.system?.schema;
   if (!schema?.getField) return update;
@@ -86,8 +138,8 @@ export function pruneUpdate(doc, update) {
   const kept = {};
   let dropped = 0;
 
-  for (const [rawKey, value] of Object.entries(flat)) {
-    const key = REMAP[rawKey] ?? rawKey;
+  for (const [rawKey, rawValue] of Object.entries(flat)) {
+    const [key, value] = remap(rawKey, rawValue);
 
     if (!key.startsWith('system.')) {
       kept[key] = value;

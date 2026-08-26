@@ -994,6 +994,52 @@ test('updates: keys under a record field are still allowed', () => {
   assert.equal(pruned.system.grants.abc123.level, 3);
 });
 
+test('updates: what a class hands a character is carried across', () => {
+  // Importing a class onto a character asks about skills, saves, armour and
+  // weapons — all written in dnd5e's vocabulary, all silently lost before.
+  const doc = {
+    name: 'Hero',
+    system: {
+      schema: fakeSchema({
+        'proficiencies.armor': 'leaf',
+        'proficiencies.weapons': 'leaf',
+        'proficiencies.languages': 'leaf',
+        'skills.ath.proficient': 'leaf',
+        'abilities.str.save.proficient': 'leaf',
+        'attributes.hp.baseMax': 'leaf',
+      }),
+    },
+  };
+
+  const pruned = pruneUpdate(doc, {
+    'system.traits.armorProf.value': ['lgt', 'med', 'shl'],
+    'system.traits.weaponProf.value': ['sim', 'mar'],
+    'system.traits.languages.value': ['common', 'infernal'],
+    'system.skills.ath.value': 1,
+    'system.abilities.str.proficient': 1,
+    'system.attributes.hp.max': 44,
+  });
+
+  assert.deepEqual(pruned.system.proficiencies.armor, ['light', 'medium', 'shield']);
+  assert.deepEqual(pruned.system.proficiencies.weapons, ['simple', 'martial']);
+  assert.deepEqual(pruned.system.proficiencies.languages, ['common', 'infernal']);
+  assert.equal(pruned.system.skills.ath.proficient, 1);
+  assert.equal(pruned.system.abilities.str.save.proficient, true);
+  assert.equal(pruned.system.attributes.hp.baseMax, 44);
+});
+
+test('updates: half proficiency rounds down, a5e has no such grade', () => {
+  const doc = { name: 'Hero', system: { schema: fakeSchema({ 'skills.prc.proficient': 'leaf' }) } };
+  assert.equal(pruneUpdate(doc, { 'system.skills.prc.value': 0.5 }).system.skills.prc.proficient, 0);
+  assert.equal(pruneUpdate(doc, { 'system.skills.prc.value': 2 }).system.skills.prc.proficient, 2);
+});
+
+test('updates: an unrecognised proficiency id is kept, not thrown away', () => {
+  const doc = { name: 'Hero', system: { schema: fakeSchema({ 'proficiencies.weapons': 'leaf' }) } };
+  const pruned = pruneUpdate(doc, { 'system.traits.weaponProf.value': ['sim', 'homebrewBlaster'] });
+  assert.deepEqual(pruned.system.proficiencies.weapons, ['simple', 'homebrewBlaster']);
+});
+
 test('updates: a document with no schema is left alone', () => {
   const update = { 'system.anything': 1 };
   assert.deepEqual(pruneUpdate({}, update), update);

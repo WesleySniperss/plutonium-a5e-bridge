@@ -250,6 +250,32 @@ export const FEATURE_TYPE = {
   '': 'other',
 };
 
+// --- proficiencies ----------------------------------------------------------
+//
+// What a class hands a character. The two systems abbreviate differently:
+// dnd5e keeps `lgt`/`med`/`hvy`/`shl` and `sim`/`mar`; a5e spells them out, and
+// keys its own `CONFIG.A5E.armor` and weapon categories that way.
+
+export const ARMOR_PROFICIENCY = {
+  lgt: 'light',
+  med: 'medium',
+  hvy: 'heavy',
+  shl: 'shield',
+};
+
+export const WEAPON_PROFICIENCY = {
+  sim: 'simple',
+  mar: 'martial',
+};
+
+/**
+ * Translate a list of proficiency ids, leaving anything unrecognised alone —
+ * homebrew and a5e-native ids pass through rather than being thrown away.
+ */
+export function mapProficiencies(values, map) {
+  return [values ?? []].flat().map((id) => map[id] ?? id);
+}
+
 // --- classes ---------------------------------------------------------------
 
 // An a5e archetype finds its class by slug, and a5e renamed several of the 5e
