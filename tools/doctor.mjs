@@ -7,6 +7,7 @@
 //   node tools/doctor.mjs --data <path>   point it at a Foundry user-data folder
 //                                         (the one holding Config/ Data/ Logs/)
 
+import { execSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -209,6 +210,62 @@ if (!existsSync(worldsDir)) {
   }
 }
 
+// --- how to make Foundry re-read it -----------------------------------------
+
+function run(command) {
+  try {
+    return execSync(command, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).toString().trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Work out how Foundry is being run here, so the restart command can be named
+ * rather than guessed at. "How do I restart it" is the step people get stuck on,
+ * and the answer is different for systemd, Docker and pm2.
+ */
+function suggestRestart() {
+  if (process.platform === 'win32') {
+    return ['Quit Foundry from its window and start it again.'];
+  }
+
+  const unit = run('systemctl list-units --type=service --all --no-legend 2>/dev/null')
+    .split('\n').map((l) => l.trim().split(/\s+/)[0])
+    .find((name) => /foundry|fvtt/i.test(name ?? ''));
+  if (unit) return [`Foundry runs under systemd as "${unit}":`, `  sudo systemctl restart ${unit}`];
+
+  const container = run('docker ps --format "{{.Names}} {{.Image}}" 2>/dev/null')
+    .split('\n').find((line) => /foundry|fvtt/i.test(line));
+  if (container) {
+    const name = container.split(/\s+/)[0];
+    return [`Foundry runs in Docker as "${name}":`, `  docker restart ${name}`];
+  }
+
+  const pm2 = run('pm2 list 2>/dev/null');
+  if (/foundry|fvtt/i.test(pm2)) {
+    return ['Foundry runs under pm2:', '  pm2 restart foundry    # use the name pm2 list shows'];
+  }
+
+  const process_ = run('ps -eo pid,args 2>/dev/null')
+    .split('\n').find((line) => /foundry|fvtt|resources\/app\/main\.(m?js)/i.test(line) && !/doctor\.mjs/.test(line));
+  if (process_) {
+    const pid = process_.trim().split(/\s+/)[0];
+    return [
+      `Foundry looks like a plain node process (pid ${pid}), started by hand or in screen/tmux:`,
+      `  kill ${pid}      # then start it again the way you normally do`,
+      '  # if it is inside screen or tmux, reattach first: screen -r  /  tmux attach',
+    ];
+  }
+
+  return [
+    'Could not tell how Foundry is being run here. Try, in order:',
+    '  systemctl list-units | grep -i foundry',
+    '  docker ps',
+    '  pm2 list',
+  ];
+}
+
 // --- verdict ----------------------------------------------------------------
 
 console.log('');
@@ -234,6 +291,9 @@ if (!problems.length) {
     [...new Set(fixes)].forEach((f) => console.log(`  - ${f}`));
   }
 }
+
+console.log('\nHow to restart Foundry on this machine:');
+suggestRestart().forEach((line) => console.log(`  ${line}`));
 console.log('');
 
 process.exit(problems.length ? 1 : 0);
