@@ -74,6 +74,46 @@ function importedOrigins() {
  * class was imported before grants existed, or its features were never in the
  * library to point at.
  */
+/**
+ * Every imported feature this world holds, counted by what it belongs to.
+ *
+ * When a class has no grants the question is which half is missing: the class
+ * never saw its features, or the features were never tagged as belonging to a
+ * class. Counting them by flag and class name answers it directly.
+ */
+async function inspectFeatures() {
+  const rows = new Map();
+
+  const note = (kind, className, where) => {
+    const key = `${kind}::${String(className || '?').toLowerCase()}`;
+    const row = rows.get(key) ?? { kind, className: className || '?', world: 0, library: 0 };
+    row[where] += 1;
+    rows.set(key, row);
+  };
+
+  for (const item of game.items) {
+    if (item.type !== 'feature') continue;
+    const flags = item.flags?.[FLAG];
+    if (flags?.classFeature) note('classFeature', flags.classFeature.className, 'world');
+    else if (flags?.subclassFeature) note('subclassFeature', flags.subclassFeature.className, 'world');
+  }
+
+  for (const name of ['plutonium-a5e-class-features', 'plutonium-a5e-archetype-features']) {
+    const pack = game.packs.get(`world.${name}`);
+    if (!pack) continue;
+    try {
+      const index = await pack.getIndex({ fields: [`flags.${FLAG}`] });
+      for (const entry of index) {
+        const flags = entry.flags?.[FLAG];
+        if (flags?.classFeature) note('classFeature', flags.classFeature.className, 'library');
+        else if (flags?.subclassFeature) note('subclassFeature', flags.subclassFeature.className, 'library');
+      }
+    } catch { /* unreadable pack */ }
+  }
+
+  return [...rows.values()];
+}
+
 async function inspectImported(findings) {
   const rows = [];
 
@@ -192,12 +232,28 @@ export async function diagnose() {
   }
 
   findings.imported = await inspectImported(findings);
+  findings.features = await inspectFeatures();
+
+  if (findings.imported.some((row) => row.type === 'class' && !row.featureGrants)
+    && !findings.features.some((row) => row.kind === 'classFeature')) {
+    findings.problems.push(
+      'No imported class features exist anywhere — not in the world, not in the library. '
+      + 'A class import that brings only the class itself has nothing to hand out. Import the '
+      + 'class from the sidebar (not onto a character) so its features come with it, then rebuild.',
+    );
+  }
 
   console.group(`${NAME} — diagnosis`);
   console.log(findings);
   if (findings.imported.length) {
     console.log('Imported classes and archetypes:');
     console.table(findings.imported);
+  }
+  if (findings.features.length) {
+    console.log('Imported features, by what they belong to:');
+    console.table(findings.features);
+  } else {
+    console.log('No imported class or subclass features found in this world.');
   }
   if (!findings.problems.length) console.log('%cNothing wrong found.', 'color: #4caf50; font-weight: bold;');
   else findings.problems.forEach((p) => console.warn(p));
