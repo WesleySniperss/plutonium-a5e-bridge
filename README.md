@@ -297,7 +297,42 @@ curl -sL https://raw.githubusercontent.com/WesleySniperss/plutonium-a5e-bridge/m
 ```
 
 It finds the data folder from the working directory, so that is the only thing
-you have to get right. Restart the Foundry service afterwards.
+you have to get right.
+
+### Why the change is not picked up on its own
+
+Foundry reads every `module.json` once and keeps the result for the life of the
+server process:
+
+```js
+// Foundry's own dist/packages/package.mjs
+static getPackages({enforceCompatibility=false}={}) {
+  if ( this.packages ) return this.packages;        // cached
+  const t = config.files.storages.data.getDirectories(this.baseDir)  // else scan disk
+  ...
+}
+static resetPackages() { this.packages = null }
+```
+
+Editing the file therefore changes nothing until that cache is dropped. Nothing
+drops it by itself — not reloading the browser, and not returning to setup.
+
+**You do not have to restart the server, though.** `resetPackages` is a setup
+action. Return to Setup — the world has to be inactive and you have to be the
+server admin, which the setup screen already means — then run this in the
+browser console:
+
+```js
+await fetch("setup", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ action: "resetPackages" })
+}).then(r => r.json());
+// { message: "Reset package cache for all package types" }
+```
+
+Reload the page and Plutonium is in the list. Restarting the Foundry service
+achieves the same thing and is simpler if you have a shell open anyway.
 
 ### Why the bridge cannot do this itself
 

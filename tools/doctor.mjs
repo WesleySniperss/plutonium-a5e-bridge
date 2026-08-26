@@ -39,11 +39,6 @@ function readJson(path) {
 
 // --- find the install -------------------------------------------------------
 
-/**
- * Modules live at <userData>/Data/modules/<id>, so from this file the user-data
- * root is four levels up. `--data` overrides it, and Config/options.json is
- * consulted in case Foundry was pointed somewhere else entirely.
- */
 /** Does this look like a Foundry user-data folder, or the Data folder inside one? */
 function modulesUnder(root) {
   for (const candidate of [join(root, 'Data', 'modules'), join(root, 'modules')]) {
@@ -164,7 +159,14 @@ if (!plutonium) {
       writeFileSync(manifestPath, `${JSON.stringify(plutonium, null, indent)}\n`, 'utf8');
       console.log(`  FIXED added a5e; backup at ${backup}`);
       problems.pop();
-      fixes.push('Restart the Foundry server — not just the browser — then enable Plutonium.');
+      fixes.push(
+        'Foundry has the old manifest cached. Restart the Foundry service, or drop the\n'
+        + '    cache without restarting: Return to Setup, then in the browser console run\n'
+        + '    await fetch("setup", { method: "POST",\n'
+        + '      headers: { "Content-Type": "application/json" },\n'
+        + '      body: JSON.stringify({ action: "resetPackages" }) }).then(r => r.json())\n'
+        + '    Reload the page, then enable Plutonium in Manage Modules.',
+      );
     }
   }
 
@@ -213,9 +215,18 @@ console.log('');
 if (!problems.length) {
   console.log('Nothing wrong found on disk.');
   console.log('');
-  console.log('If Plutonium is still missing from the module list, the usual reason is that');
-  console.log('the Foundry *server* has not been restarted since the manifest changed —');
-  console.log('reloading the browser is not enough. Quit Foundry completely and start it again.');
+  console.log('If Plutonium is still missing from the module list, Foundry is serving a');
+  console.log('cached copy of the manifests: it scans them once and keeps them for the life');
+  console.log('of the process, so editing the file changes nothing on its own.');
+  console.log('');
+  console.log('Drop that cache without restarting: Return to Setup, then in the browser');
+  console.log('console on the setup screen run');
+  console.log('');
+  console.log('  await fetch("setup", { method: "POST",');
+  console.log('    headers: { "Content-Type": "application/json" },');
+  console.log('    body: JSON.stringify({ action: "resetPackages" }) }).then(r => r.json())');
+  console.log('');
+  console.log('Reload the page afterwards. Restarting the server does the same thing.');
 } else {
   console.log(`${problems.length} problem(s) found.`);
   if (fixes.length) {
