@@ -1,6 +1,6 @@
 import { linkPending, rebuildArchetypeGrants, rebuildClassGrants, scheduleLink } from './grant-linker.js';
 import { installPlutoniumBridge } from './bridge.js';
-import { diagnose, reportIfBroken } from './diagnose.js';
+import { diagnose, report, reportIfBroken } from './diagnose.js';
 import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from './config-shim.js';
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { registerSettings } from './settings.js';
@@ -31,7 +31,7 @@ Hooks.once('ready', () => {
 
   // Expose the diagnosis first: when Plutonium is missing, that is the one call
   // worth having available.
-  game.modules.get(ID).api = { diagnose };
+  game.modules.get(ID).api = { diagnose, report };
 
   if (!game.modules.get('plutonium')?.active) {
     reportIfBroken();
@@ -62,6 +62,7 @@ Hooks.once('ready', () => {
 
   game.modules.get(ID).api = {
     diagnose,
+    report,
     translateDocument,
     getUnmappedConfigPaths,
     getInstalledStubs,

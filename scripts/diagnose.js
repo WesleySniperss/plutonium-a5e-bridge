@@ -66,15 +66,6 @@ function importedOrigins() {
 }
 
 /**
- * Whether each imported class and archetype actually got its feature grants.
- *
- * This is the question behind "levelling up does nothing". A class hands out its
- * features through `system.grants`; if those are empty, nothing arrives at level
- * 2 and it looks like the bridge does not work at all. It usually means the
- * class was imported before grants existed, or its features were never in the
- * library to point at.
- */
-/**
  * Every imported feature this world holds, counted by what it belongs to.
  *
  * When a class has no grants the question is which half is missing: the class
@@ -114,6 +105,15 @@ async function inspectFeatures() {
   return [...rows.values()];
 }
 
+/**
+ * Whether each imported class and archetype actually got its feature grants.
+ *
+ * This is the question behind "levelling up does nothing". A class hands out its
+ * features through `system.grants`; if those are empty, nothing arrives at level
+ * 2 and it looks like the bridge does not work at all. It usually means the
+ * class was imported before grants existed, or its features were never in the
+ * library to point at.
+ */
 async function inspectImported(findings) {
   const rows = [];
 
@@ -151,7 +151,7 @@ async function inspectImported(findings) {
  * Work out why Plutonium is not usable, if it is not.
  * @returns {Promise<object>} the findings, also printed to the console
  */
-export async function diagnose() {
+export async function diagnose({ quiet = false } = {}) {
   const findings = {
     system: game.system.id,
     systemVersion: game.system.version,
@@ -243,6 +243,8 @@ export async function diagnose() {
     );
   }
 
+  if (quiet) return findings;
+
   console.group(`${NAME} — diagnosis`);
   console.log(findings);
   if (findings.imported.length) {
@@ -261,6 +263,43 @@ export async function diagnose() {
   console.groupEnd();
 
   return findings;
+}
+
+function table(rows, columns) {
+  if (!rows.length) return '  (none)';
+
+  const widths = columns.map((c) => Math.max(c.length, ...rows.map((r) => String(r[c] ?? '').length)));
+  const line = (cells) => `  ${cells.map((cell, i) => String(cell ?? '').padEnd(widths[i])).join('  ')}`.trimEnd();
+
+  return [line(columns), line(widths.map((w) => '-'.repeat(w))), ...rows.map((r) => line(columns.map((c) => r[c])))]
+    .join('\n');
+}
+
+/**
+ * The same findings as plain text.
+ *
+ * `console.table` is unreadable once it leaves the console, and a screenshot of
+ * it cannot be searched or quoted. This is the version to copy and send.
+ */
+export async function report() {
+  const f = await diagnose({ quiet: true });
+
+  return [
+    `${NAME} — report`,
+    '',
+    `bridge ${f.bridgeVersion} | system ${f.system} ${f.systemVersion} | Foundry ${f.foundry}`,
+    `Plutonium: installed=${f.plutoniumInstalled} lists-a5e=${f.plutoniumListsA5e} `
+      + `active=${f.plutoniumActive} api=${f.plutoniumApi} | libWrapper=${f.libWrapperActive}`,
+    f.plutoniumSystems ? `Plutonium systems: ${f.plutoniumSystems.join(', ')}` : '',
+    '',
+    'Imported classes and archetypes:',
+    table(f.imported, ['name', 'type', 'on', 'classLevels', 'archetypeLevel', 'featureGrants', 'levels', 'resources']),
+    '',
+    'Imported features:',
+    table(f.features, ['kind', 'className', 'world', 'library']),
+    '',
+    f.problems.length ? `Problems:\n${f.problems.map((p) => `  - ${p}`).join('\n')}` : 'No problems found.',
+  ].filter((part) => part !== '').join('\n');
 }
 
 /**
