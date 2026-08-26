@@ -220,6 +220,28 @@ function featuresFor(owner, kind, features, ownerCount) {
   return mine.filter((feature) => belongsTo(flagsOf(feature)?.[kind.featureFlag], meta, kind));
 }
 
+// Plutonium keeps the features its advancements point at in a compendium of its
+// own — `Advancement-Backing Items`, under its internal id. Once they are there,
+// re-importing a class creates nothing new: it reuses them. So an import can
+// legitimately produce zero documents while every feature the class needs sits
+// in that pack, which is why looking only at the world found nothing.
+const PLUTONIUM_BACKING_PACK = 'world.srd5e-advancement-backing-item';
+
+async function backingFeaturesFor(owner, kind) {
+  const pack = game.packs.get(PLUTONIUM_BACKING_PACK);
+  if (!pack) return [];
+
+  const meta = ownerMetaFor(owner, kind);
+  const index = await pack.getIndex({ fields: ['type', `flags.${FLAG_SCOPE}`] });
+
+  const ids = index
+    .filter((entry) => entry.type === 'feature'
+      && belongsTo(entry.flags?.[FLAG_SCOPE]?.[kind.featureFlag], meta, kind))
+    .map((entry) => entry._id);
+
+  return (await Promise.all(ids.map((id) => pack.getDocument(id)))).filter(Boolean);
+}
+
 /** Every feature item in the world (or on the owner's actor) that belongs to it. */
 function worldFeaturesFor(owner, kind) {
   const meta = ownerMetaFor(owner, kind);
@@ -469,12 +491,18 @@ export async function linkPending() {
       // batch — importing subclasses on their own brings no features at all, and
       // `importComplete` can land between the two halves. Rather than give up,
       // fall back to features this world already holds.
+      let from = 'this import';
+
       if (!mine.length) {
         mine = worldFeaturesFor(owner, kind);
-        if (mine.length) debug(`Found ${mine.length} feature(s) for "${owner.name}" already in the world.`);
+        from = 'the world';
+      }
+      if (!mine.length) {
+        mine = await backingFeaturesFor(owner, kind);
+        from = "Plutonium's backing compendium";
       }
 
-      log(`"${owner.name}": ${mine.length} matching feature(s) to publish.`);
+      log(`"${owner.name}": ${mine.length} matching feature(s) to publish, from ${from}.`);
 
       const linked = await linkOne(owner, kind, mine);
       if (linked) await handoverToActor(owner, mine);
@@ -512,7 +540,8 @@ async function rebuild(uuid, kind) {
       : `"${owner.name}" is a "${owner.type}" item, not a ${kind.noun.toLowerCase()}.`);
   }
 
-  const candidates = worldFeaturesFor(owner, kind);
+  const loose = worldFeaturesFor(owner, kind);
+  const candidates = loose.length ? loose : await backingFeaturesFor(owner, kind);
 
   // No loose copies is not a failure on its own — `linkOne` still rebuilds from
   // the module's own library, which is where earlier imports were filed.
