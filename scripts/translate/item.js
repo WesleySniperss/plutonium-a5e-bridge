@@ -22,6 +22,8 @@ import {
   classFeatureMeta,
   classMeta,
   isClassFeatureItem,
+  isOptionalFeatureItem,
+  optionalFeatureMeta,
   isSubclassFeatureItem,
   resourcesFromAdvancement,
   spellcastingOf,
@@ -409,6 +411,10 @@ export function translateItem(data, ctx = {}) {
       system.featureType = 'class';
       extraFlags = { ...extraFlags, classFeature: meta };
     }
+  } else if (a5eType === 'feature' && isOptionalFeatureItem(data)) {
+    // Tagged rather than granted: these are the options a feature offers, and
+    // which of them a character takes is a choice, not an import.
+    extraFlags = { ...extraFlags, optionalFeature: optionalFeatureMeta(data) };
   } else if (a5eType === 'class') {
     extraFlags = { ...extraFlags, class: classMeta(data), grantsLinked: false };
   }

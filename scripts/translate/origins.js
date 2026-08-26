@@ -83,6 +83,31 @@ export function isSubclassFeatureItem(data) {
   return plutoniumFlags(data)?.page === 'subclassFeature';
 }
 
+/**
+ * Is this one of the options a feature lets you pick between?
+ *
+ * 5etools keeps these apart from class features — Fighting Styles, Eldritch
+ * Invocations, and whatever a homebrew class calls its own — on their own page
+ * and behind their own import list. A class table can list "Combat Mastery" at
+ * 2nd level while no class feature by that name exists anywhere: the entry is
+ * the group, and the options are these.
+ */
+export function isOptionalFeatureItem(data) {
+  return data?.type === 'feat' && plutoniumFlags(data)?.page === 'optionalfeatures.html';
+}
+
+/** What group an option belongs to, and where it came from. */
+export function optionalFeatureMeta(data) {
+  const system = data?.system ?? {};
+  return {
+    name: String(data?.name ?? ''),
+    // dnd5e files each group under a subtype; 5etools calls it the feature type.
+    group: String(system.type?.subtype ?? ''),
+    hash: plutoniumFlags(data)?.hash ?? '',
+    source: plutoniumFlags(data)?.source ?? '',
+  };
+}
+
 /** Is this dnd5e `feat` item one of a class's own levelled features? */
 export function isClassFeatureItem(data) {
   if (data?.type !== 'feat') return false;
