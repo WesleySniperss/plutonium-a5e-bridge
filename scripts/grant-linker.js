@@ -282,6 +282,12 @@ async function linkOne(owner, kind, features) {
   // throw away the later levels a previous, fuller import had found. It is also
   // why an import that brought no features of its own is still worth running:
   // the library may already know this class from an earlier one.
+  // Publish before worrying about grants. a5e-mancer only offers classes and
+  // archetypes it can find in a compendium, so one that arrived without its
+  // features still has to get there — otherwise it cannot even be picked, and
+  // the grants could never be filled in afterwards.
+  await publishOwner(owner, kind);
+
   const entries = await libraryFeaturesFor(owner, kind, featurePack);
 
   if (!entries.length) {
@@ -316,14 +322,18 @@ async function linkOne(owner, kind, features) {
 
   if (kind === KINDS.class) await setArchetypeLevel(owner);
 
-  if (setting('publishArchetypes', true) && !owner.pack) {
-    const ownerPack = await getOrCreatePack(kind.ownerPack);
-    const key = flagsOf(owner)?.[kind.ownerFlag]?.hash ?? slug(owner.name);
-    const uuid = await publish(ownerPack, owner, key);
-    debug(`Published ${kind.noun.toLowerCase()} to the library: ${uuid}`);
-  }
-
+  await publishOwner(owner, kind);
   return true;
+}
+
+/** Copy a class or archetype into the module's compendium, so the builder sees it. */
+async function publishOwner(owner, kind) {
+  if (!setting('publishArchetypes', true) || owner.pack) return;
+
+  const ownerPack = await getOrCreatePack(kind.ownerPack);
+  const key = flagsOf(owner)?.[kind.ownerFlag]?.hash ?? slug(owner.name);
+  const uuid = await publish(ownerPack, owner, key);
+  debug(`Published ${kind.noun.toLowerCase()} to the library: ${uuid}`);
 }
 
 /**

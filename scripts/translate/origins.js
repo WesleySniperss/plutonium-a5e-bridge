@@ -247,13 +247,21 @@ export function classMeta(data) {
   };
 }
 
-// dnd5e subclass spellcasting -> a5e caster progression, where one exists.
+// dnd5e spellcasting progression -> a5e caster progression.
+//
+// The names are not shared, and the values here have to be keys of a5e's own
+// `CONFIG.A5E.casterProgression` — anything else is stored happily and then
+// resolves to no spell slots at all, because a5e looks the type up in that
+// table. Its keys are: none, fullCaster, halfCaster, tertiaryCaster,
+// quaternaryCaster, halfCasterWithFirstLevel, artificerA5e, elementalist,
+// herald, psion, warlockA5e, warlock5e, wielder.
 const CASTER_PROGRESSION = {
-  full: 'full',
-  half: 'half',
-  third: 'third',
-  artificer: 'half',
-  pact: 'pact',
+  full: 'fullCaster',
+  half: 'halfCaster',
+  third: 'tertiaryCaster',
+  artificer: 'artificerA5e',
+  // dnd5e's pact magic is the 5e warlock, which a5e models separately from its own.
+  pact: 'warlock5e',
 };
 
 export function spellcastingOf(system) {

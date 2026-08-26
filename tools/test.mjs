@@ -729,9 +729,44 @@ test('class: spellcasting drives a5e slots', () => {
     name: 'Wizard',
     system: { ...fighter.system, identifier: 'wizard', spellcasting: { progression: 'full', ability: 'int' } },
   });
-  assert.equal(wizard.system.spellcasting.casterType, 'full');
+  assert.equal(wizard.system.spellcasting.casterType, 'fullCaster');
   assert.equal(wizard.system.spellcasting.ability.value, 'int');
   assert.equal(translateDocument('Item', fighter).system.spellcasting.casterType, 'none');
+});
+
+test('spellcasting: the caster type must be a key a5e actually knows', () => {
+  // a5e looks the type up in CONFIG.A5E.casterProgression. A value that is not
+  // one of its keys is stored without complaint and then yields no spell slots
+  // at all, which is what "the caster gets nothing on level-up" looks like.
+  const VALID = new Set([
+    'none', 'fullCaster', 'halfCaster', 'tertiaryCaster', 'quaternaryCaster',
+    'halfCasterWithFirstLevel', 'artificerA5e', 'elementalist', 'herald',
+    'psion', 'warlockA5e', 'warlock5e', 'wielder',
+  ]);
+
+  const casterOf = (progression) => translateDocument('Item', {
+    ...fighter,
+    system: { ...fighter.system, spellcasting: { progression, ability: 'int' } },
+  }).system.spellcasting.casterType;
+
+  for (const progression of ['full', 'half', 'third', 'artificer', 'pact', 'none', '', undefined]) {
+    assert.ok(VALID.has(casterOf(progression)), `"${progression}" produced an unknown caster type`);
+  }
+
+  assert.equal(casterOf('full'), 'fullCaster');
+  assert.equal(casterOf('half'), 'halfCaster');
+  assert.equal(casterOf('third'), 'tertiaryCaster');
+  assert.equal(casterOf('artificer'), 'artificerA5e');
+  assert.equal(casterOf('pact'), 'warlock5e');
+  assert.equal(casterOf(undefined), 'none');
+});
+
+test('spellcasting: an archetype gets the same treatment', () => {
+  const arch = translateDocument('Item', {
+    ...champion,
+    system: { ...champion.system, spellcasting: { progression: 'third', ability: 'int' } },
+  });
+  assert.equal(arch.system.spellcasting.casterType, 'tertiaryCaster');
 });
 
 test('class: a scale value becomes an a5e class resource', () => {
