@@ -1,4 +1,10 @@
-import { linkPending, rebuildArchetypeGrants, rebuildClassGrants, scheduleLink } from './grant-linker.js';
+import {
+  adoptExistingFeatures,
+  linkPending,
+  rebuildArchetypeGrants,
+  rebuildClassGrants,
+  scheduleLink,
+} from './grant-linker.js';
 import { installPlutoniumBridge } from './bridge.js';
 import { diagnose, report, reportIfBroken } from './diagnose.js';
 import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from './config-shim.js';
@@ -67,6 +73,7 @@ Hooks.once('ready', () => {
     getUnmappedConfigPaths,
     getInstalledStubs,
     installPlutoniumBridge,
+    adoptExistingFeatures,
     rebuildArchetypeGrants,
     rebuildClassGrants,
     linkPending,

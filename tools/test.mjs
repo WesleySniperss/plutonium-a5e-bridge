@@ -1052,6 +1052,19 @@ test('archetype: a5e-renamed classes match their dnd5e identifier', () => {
   assert.equal(belongsTo({ className: 'Berserker', subclassShortName: 'Champion' }, archetype), true);
 });
 
+test('adoption: a hash read back off an old item still matches its class', () => {
+  // Features imported before the bridge tagged them keep Plutonium's own flags,
+  // so the class and level can be recovered from the hash. What matters is that
+  // the recovered name lines up with the class — the hash is lowercased and
+  // URI-encoded, the class identifier is not.
+  const meta = parseClassFeatureHash('diabolic%20inspiration_illrigger_illrigger_5_illrigger');
+  assert.equal(meta.className, 'illrigger');
+  assert.equal(meta.level, 5);
+
+  const owner = { classIdentifier: 'Illrigger', classSlug: 'illrigger', identifier: 'Illrigger' };
+  assert.equal(belongsTo(meta, owner, KINDS.class), true);
+});
+
 // --- attaching to a5e's own classes -----------------------------------------
 //
 // A class or archetype that a5e ships, or that was built by hand, carries none

@@ -194,6 +194,22 @@ spelled differently on each side — dnd5e hands over an identifier like
 `illriggerrevised` while the 5etools hash says `Illrigger Revised`. Separators are
 ignored on both sides, which is what lets homebrew classes line up at all.
 
+### Features imported by an older version of this bridge
+
+Class-feature tagging arrived after subclass-feature tagging. A world imported in
+between has its subclass features recognised and its class features invisible, so
+the class has nothing to build grants from and levelling up does nothing.
+
+Nothing needs re-importing — Plutonium's own flags are still on every document,
+and its hash carries the class and the level:
+
+```js
+await game.modules.get('plutonium-a5e').api.adoptExistingFeatures();
+```
+
+That writes the tag the linker looks for; rebuild the grants afterwards.
+`diagnose()` spots this case and says so.
+
 If an import was interrupted, or you have edited the features by hand, rebuild
 one class's or archetype's wiring directly:
 

@@ -1,4 +1,9 @@
-import { FLAG_SCOPE, buildFeatureGrants } from './translate/origins.js';
+import {
+  FLAG_SCOPE,
+  buildFeatureGrants,
+  parseClassFeatureHash,
+  parseSubclassFeatureHash,
+} from './translate/origins.js';
 import { classSlug } from './translate/maps.js';
 import { ID, debug, error, log, warn } from './util/log.js';
 
@@ -480,6 +485,59 @@ async function rebuild(uuid, kind) {
   }
 
   return candidates.length;
+}
+
+/**
+ * Tag features an earlier version of this bridge imported without a tag.
+ *
+ * Class-feature tagging arrived after subclass-feature tagging, so a world
+ * imported in between ends up with its subclass features recognised and its
+ * class features invisible — the class then has nothing to build grants from,
+ * and levelling up does nothing.
+ *
+ * Nothing needs re-importing: Plutonium's own flags are still on every document,
+ * and its hash carries the class and the level. This reads them back and writes
+ * the tag the linker looks for.
+ *
+ * @returns {Promise<{tagged: number, skipped: number}>}
+ */
+export async function adoptExistingFeatures() {
+  const PARSE = {
+    classFeature: parseClassFeatureHash,
+    subclassFeature: parseSubclassFeatureHash,
+  };
+
+  const documents = [...game.items];
+  for (const actor of game.actors) documents.push(...actor.items);
+
+  let tagged = 0;
+  let skipped = 0;
+
+  for (const doc of documents) {
+    if (doc.type !== 'feature') continue;
+
+    const page = doc.flags?.plutonium?.page;
+    const parse = PARSE[page];
+    if (!parse) continue;
+    // Already recognised — either by this bridge or by an earlier pass.
+    if (flagsOf(doc)?.[page]) continue;
+
+    const meta = parse(doc.flags?.plutonium?.hash);
+    if (!meta?.className) { skipped++; continue; }
+
+    try {
+      await doc.update({ [`flags.${FLAG_SCOPE}.${page}`]: meta });
+      tagged++;
+    } catch (e) {
+      error(`Could not tag "${doc.name}".`, e);
+      skipped++;
+    }
+  }
+
+  log(`Adopted ${tagged} previously untagged feature(s); ${skipped} could not be read.`);
+  if (tagged) log('Now rebuild the grants: api.rebuildClassGrants(uuid) / api.rebuildArchetypeGrants(uuid).');
+
+  return { tagged, skipped };
 }
 
 export function rebuildArchetypeGrants(uuid) {

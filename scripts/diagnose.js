@@ -74,6 +74,7 @@ function importedOrigins() {
  */
 async function inspectFeatures() {
   const rows = new Map();
+  const pages = {};
 
   const note = (kind, className, where) => {
     const key = `${kind}::${String(className || '?').toLowerCase()}`;
@@ -82,8 +83,16 @@ async function inspectFeatures() {
     rows.set(key, row);
   };
 
-  for (const item of game.items) {
+  const documents = [...game.items];
+  for (const actor of game.actors) documents.push(...actor.items);
+
+  for (const item of documents) {
     if (item.type !== 'feature') continue;
+
+    // What Plutonium itself thinks this is, whether or not the bridge tagged it.
+    const page = item.flags?.plutonium?.page;
+    if (page === 'classFeature' || page === 'subclassFeature') pages[page] = (pages[page] ?? 0) + 1;
+
     const flags = item.flags?.[FLAG];
     if (flags?.classFeature) note('classFeature', flags.classFeature.className, 'world');
     else if (flags?.subclassFeature) note('subclassFeature', flags.subclassFeature.className, 'world');
@@ -102,7 +111,7 @@ async function inspectFeatures() {
     } catch { /* unreadable pack */ }
   }
 
-  return [...rows.values()];
+  return { rows: [...rows.values()], pages };
 }
 
 /**
@@ -232,10 +241,29 @@ export async function diagnose({ quiet = false } = {}) {
   }
 
   findings.imported = await inspectImported(findings);
-  findings.features = await inspectFeatures();
 
-  if (findings.imported.some((row) => row.type === 'class' && !row.featureGrants)
-    && !findings.features.some((row) => row.kind === 'classFeature')) {
+  const features = await inspectFeatures();
+  findings.features = features.rows;
+  findings.plutoniumPages = features.pages;
+
+  // Plutonium knows these are class or subclass features; the bridge does not.
+  // That means they were imported before it learned to tag that kind, so the
+  // linker cannot see them — and no amount of rebuilding will help until they
+  // are tagged.
+  const untagged = ['classFeature', 'subclassFeature'].filter((page) => {
+    const seen = features.pages[page] ?? 0;
+    const known = features.rows.filter((r) => r.kind === page).reduce((n, r) => n + r.world, 0);
+    return seen > known;
+  });
+
+  if (untagged.length) {
+    findings.problems.push(
+      `Plutonium imported features this bridge never tagged (${untagged.join(', ')}), so nothing can `
+      + 'be built from them. Nothing needs re-importing — adopt them: '
+      + `game.modules.get('${FLAG}').api.adoptExistingFeatures()`,
+    );
+  } else if (findings.imported.some((row) => row.type === 'class' && !row.featureGrants)
+    && !features.rows.some((row) => row.kind === 'classFeature')) {
     findings.problems.push(
       'No imported class features exist anywhere — not in the world, not in the library. '
       + 'A class import that brings only the class itself has nothing to hand out. Import the '
