@@ -17,7 +17,7 @@ installFoundryStub();
 
 const { translateDocument, pruneUpdate } = await import('../scripts/translate/index.js');
 const { actorRollContext } = await import('../scripts/translate/actor.js');
-const { convertUses, withMagic } = await import('../scripts/translate/actions.js');
+const { convertUses, translateFormula, withMagic } = await import('../scripts/translate/actions.js');
 const origins = await import('../scripts/translate/origins.js');
 const { buildFeatureGrants, parseClassFeatureHash, parseSubclassFeatureHash } = origins;
 const { assignSpellBooks, attachSpellBook, spellBookIdOf } = await import('../scripts/spellbook.js');
@@ -425,6 +425,51 @@ test('save trait: "Recharge 5" becomes a5e recharge uses', () => {
   assert.equal(out.system.uses.recharge.threshold, 5);
   assert.equal(out.system.uses.recharge.formula, '1d6');
   assert.equal(out.system.uses.value, 1);
+});
+
+// --- roll-data names --------------------------------------------------------
+//
+// Both systems keep the same numbers, under different names. A formula carried
+// across verbatim resolves to nothing, and the feature sits there with dead
+// numbers — which is what "the uses never go up" looks like.
+
+test('formulas: ability references lose dnd5e\'s abilities. prefix', () => {
+  assert.equal(translateFormula('@abilities.cha.mod'), '@cha.mod');
+  assert.equal(translateFormula('1d8 + @abilities.str.mod'), '1d8 + @str.mod');
+  assert.equal(translateFormula('@abilities.dex.value'), '@dex.value');
+});
+
+test('formulas: proficiency is already spelled the same', () => {
+  // 223 uses of @prof in a5e's own content, so this must survive untouched.
+  assert.equal(translateFormula('@prof'), '@prof');
+  assert.equal(translateFormula('@prof + @abilities.wis.mod'), '@prof + @wis.mod');
+});
+
+test('formulas: a scale value points at the class resource slug', () => {
+  // dnd5e reaches it through the class; a5e puts each resource in under its slug.
+  assert.equal(translateFormula('@scale.rogue.sneak-attack'), '@sneakattack');
+  assert.equal(translateFormula('@scale.illriggerrevised.blood_price + 2'), '@bloodprice + 2');
+});
+
+test('formulas: anything else is left alone', () => {
+  assert.equal(translateFormula('2d6 + 3'), '2d6 + 3');
+  assert.equal(translateFormula('@dex.mod'), '@dex.mod', 'already in a5e terms');
+  assert.equal(translateFormula(''), '');
+  assert.equal(translateFormula(undefined), '');
+});
+
+test('formulas: a feature\'s uses are translated too', () => {
+  const feature = translateDocument('Item', {
+    name: 'Interdiction',
+    type: 'feat',
+    system: {
+      description: { value: '' },
+      type: { value: 'class' },
+      uses: { max: '@abilities.cha.mod', spent: 0, recovery: [{ period: 'lr', type: 'recoverAll' }] },
+      activities: {},
+    },
+  });
+  assert.equal(feature.system.uses.max, '@cha.mod');
 });
 
 // --- spending charges -------------------------------------------------------

@@ -21,6 +21,30 @@ import {
 
 const id = () => foundry.utils.randomID();
 
+// The two systems put the same numbers under different names in roll data. a5e
+// writes `@cha.mod` and `@prof`; dnd5e writes `@abilities.cha.mod`. A formula
+// carried across verbatim resolves to nothing, which is what "the uses do not go
+// up" and "the damage never grows" look like — the feature is there, its numbers
+// are dead.
+//
+// Checked against a5e's own content: 4071 `@str.mod`, 605 `@dex.mod`,
+// 223 `@prof`, and no `@abilities.` anywhere.
+const ROLL_DATA = [
+  [/@abilities\.([a-z]{3})\.mod\b/gi, '@$1.mod'],
+  [/@abilities\.([a-z]{3})\.value\b/gi, '@$1.value'],
+  [/@abilities\.([a-z]{3})\.save\b/gi, '@$1.save'],
+
+  // dnd5e reaches a class's scaling table through the class that owns it; a5e
+  // puts each class resource in roll data under its own slug.
+  [/@scale\.[a-z0-9_-]+\.([a-z0-9_-]+)/gi, (_, key) => `@${key.replace(/[^a-z0-9]+/gi, '').toLowerCase()}`],
+];
+
+/** Rewrite a formula's roll-data references from dnd5e's names into a5e's. */
+export function translateFormula(formula) {
+  if (!formula || typeof formula !== 'string') return formula ?? '';
+  return ROLL_DATA.reduce((text, [pattern, to]) => text.replace(pattern, to), formula);
+}
+
 /**
  * a5e has no "+1 weapon" field — its own magic items write the bonus straight
  * into the formula (its +2 plate is literally `"18 + 2"`). dnd5e keeps it apart
@@ -131,7 +155,7 @@ function addDamageRolls(rolls, parts, {
     // Statblock damage already carries a flat bonus, and is left exactly as-is.
     const hasBonus = !!String(part.bonus ?? '').trim() || part.custom?.enabled;
     if (impliedAbility && !hasBonus) formula = `${formula} + @${impliedAbility}.mod`;
-    formula = withMagic(formula, magicBonus);
+    formula = translateFormula(withMagic(formula, magicBonus));
 
     rolls[id()] = {
       ...rollBase(''),
@@ -146,7 +170,7 @@ function addDamageRolls(rolls, parts, {
 }
 
 function addHealingRoll(rolls, healing, { isSpell }) {
-  const formula = damageFormula(healing);
+  const formula = translateFormula(damageFormula(healing));
   if (!formula) return;
   const types = healing?.types ?? [];
   const isTemp = (Array.isArray(types) ? types : [...types]).includes('temphp');
@@ -303,7 +327,7 @@ function targetOf(target) {
 export function convertUses(uses) {
   if (!uses) return undefined;
 
-  const max = String(uses.max ?? '').trim();
+  const max = translateFormula(String(uses.max ?? '').trim());
   const spent = Number(uses.spent) || 0;
   const maxNum = Number(max);
   const value = Number.isFinite(maxNum) && max !== '' ? Math.max(0, maxNum - spent) : 0;
@@ -361,7 +385,7 @@ export function activityToAction(activity, opts = {}) {
         type: 'attack',
         attackType: attackTypeOf(activity.attack),
         ability,
-        bonus: withMagic(attackBonusOf(activity.attack, ability, opts), opts.magicBonus),
+        bonus: translateFormula(withMagic(attackBonusOf(activity.attack, ability, opts), opts.magicBonus)),
         critThreshold: Number(activity.attack?.critical?.threshold) || 20,
         proficient: true,
       };
@@ -405,7 +429,7 @@ export function activityToAction(activity, opts = {}) {
     }
 
     case 'utility': {
-      const formula = String(activity.roll?.formula ?? '').trim();
+      const formula = translateFormula(String(activity.roll?.formula ?? '').trim());
       if (formula) {
         rolls[id()] = {
           ...rollBase(activity.roll?.name ?? ''),
