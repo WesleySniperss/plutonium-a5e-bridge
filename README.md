@@ -234,8 +234,13 @@ its documentation recommends has nowhere to appear. The importer itself does not
 care which system is running: `ChooseImporter.pOpen({actor, modeId})` is exactly
 what those buttons call.
 
-So it is reachable two other ways. **Right-click a character in the actor
-directory** — "Import onto this actor (Plutonium)" — or:
+So the bridge puts one back. Open a character sheet and use the **Import
+(Plutonium)** entry in the window header — Foundry fires
+`getHeaderControls{ClassName}` for every class in a sheet's inheritance chain,
+so hooking `ApplicationV2` catches a5e's sheet without depending on what it is
+called or built from.
+
+The same thing is on the actor directory's right-click menu, and as an API:
 
 ```js
 const api = game.modules.get('plutonium-a5e').api;

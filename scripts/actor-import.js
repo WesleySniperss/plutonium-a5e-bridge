@@ -46,6 +46,38 @@ export async function importOnto(actor, what = 'class') {
 }
 
 /**
+ * Put an import button in the character sheet's header.
+ *
+ * Foundry fires `getHeaderControls{ClassName}` for every class in the sheet's
+ * inheritance chain, so hooking the ApplicationV2 name catches a5e's sheet
+ * without needing to know what it is called or what it is built from. A control
+ * may carry its own `onClick`, which saves registering an action on someone
+ * else's application:
+ *
+ *   if ( typeof onClick === "function" ) onClick(event, li);
+ */
+export function installSheetImportButton() {
+  Hooks.on('getHeaderControlsApplicationV2', (app, controls) => {
+    const actor = app?.document;
+    if (actor?.documentName !== 'Actor' || actor.type !== 'character') return;
+    if (!actor.isOwner || !importerApi()?.pOpen) return;
+    if (controls.some((c) => c.action === IMPORT_ACTION)) return;
+
+    controls.push({
+      action: IMPORT_ACTION,
+      icon: 'fa-solid fa-download',
+      label: 'Import (Plutonium)',
+      onClick: () => importOnto(actor, 'class')
+        .catch((e) => error('Could not open the importer.', e)),
+    });
+  });
+
+  log('Added an import button to the character sheet header.');
+}
+
+const IMPORT_ACTION = 'plutonium-a5e-import';
+
+/**
  * Put that on the actor directory's right-click menu.
  *
  * Both key spellings are given: Foundry 14 renamed `name` to `label` and
