@@ -1,6 +1,7 @@
 import {
   adoptExistingFeatures,
   openFeatureImporter,
+  verifyGrants,
   linkPending,
   rebuildArchetypeGrants,
   rebuildClassGrants,
@@ -85,6 +86,7 @@ Hooks.once('ready', () => {
     installPlutoniumBridge,
     adoptExistingFeatures,
     openFeatureImporter,
+    verifyGrants,
     importOnto,
     setClassManeuvers,
     maneuverTemplates,

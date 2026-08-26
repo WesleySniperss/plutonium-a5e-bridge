@@ -5,7 +5,7 @@ import {
   parseSubclassFeatureHash,
 } from './translate/origins.js';
 import { classSlug } from './translate/maps.js';
-import { ID, debug, error, log, warn } from './util/log.js';
+import { ID, NAME, debug, error, log, warn } from './util/log.js';
 
 // A class and an archetype hand out features exactly the same way in a5e: a
 // `system.grants` entry per level, applied by `ActorGrantsManager` whenever the
@@ -273,8 +273,13 @@ async function libraryFeaturesFor(owner, kind, featurePack) {
     const meta = entry.flags?.[FLAG_SCOPE]?.[kind.featureFlag];
     if (!belongsTo(meta, ownerMeta, kind)) continue;
 
-    // Guard against a stale duplicate of the same feature at the same level.
-    const key = `${meta.level}::${slug(entry.name)}`;
+    // Identify a feature by its 5etools entry, not by its name. Homebrew reuses
+    // names freely — Illrigger has three features all called "Diabolic Contract
+    // feature" — and keying on the name silently dropped every one after the
+    // first, so a level that grants two features handed out one.
+    const key = entry.flags?.[FLAG_SCOPE]?.libraryKey
+      || entry.flags?.plutonium?.hash
+      || `${meta.level}::${slug(entry.name)}::${entry._id}`;
     if (byLevel.has(key)) continue;
 
     byLevel.set(key, {
@@ -623,6 +628,67 @@ async function rebuild(uuid, kind) {
   }
 
   return candidates.length;
+}
+
+/**
+ * What every imported class and archetype actually hands out, level by level,
+ * and whether each feature it points at still exists.
+ *
+ * A grant is a list of UUIDs. If one of them no longer resolves — the library
+ * copy was deleted, or two features collided and only one was published — the
+ * level simply hands out less than it should, with nothing said. This lists
+ * them so that can be seen rather than inferred.
+ *
+ * @param {string} [uuid] one class or archetype; omit for all of them
+ */
+export async function verifyGrants(uuid = null) {
+  const owners = [];
+
+  if (uuid) {
+    const owner = await fromUuid(uuid);
+    if (!owner) throw new Error(`No such item: ${uuid}`);
+    owners.push(owner);
+  } else {
+    const seen = new Set();
+    const all = [...game.items];
+    for (const actor of game.actors) all.push(...actor.items);
+    for (const item of all) {
+      if (!kindOf(item) || seen.has(item.uuid)) continue;
+      seen.add(item.uuid);
+      owners.push(item);
+    }
+  }
+
+  const rows = [];
+  for (const owner of owners) {
+    const grants = Object.values(owner.system?.grants ?? {})
+      .filter((g) => g?.grantType === 'feature')
+      .sort((a, b) => (a.level ?? 0) - (b.level ?? 0));
+
+    for (const grant of grants) {
+      for (const feature of grant.features?.base ?? []) {
+        let resolved = null;
+        try { resolved = await fromUuid(feature.uuid); } catch { resolved = null; }
+
+        rows.push({
+          owner: owner.name,
+          on: owner.parent?.name ?? 'the item directory',
+          level: grant.level,
+          feature: feature.name || resolved?.name || '(unnamed)',
+          found: !!resolved,
+        });
+      }
+    }
+  }
+
+  const missing = rows.filter((r) => !r.found);
+  console.group(`${NAME} — grants`);
+  console.table(rows);
+  if (missing.length) console.warn(`${missing.length} granted feature(s) no longer resolve.`);
+  else console.log(`%cAll ${rows.length} granted feature(s) resolve.`, 'color: #4caf50; font-weight: bold;');
+  console.groupEnd();
+
+  return rows;
 }
 
 /**
