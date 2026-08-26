@@ -99,8 +99,12 @@ export function ownerMetaFor(owner, kind) {
 
 /** Called by the bridge for everything Plutonium creates during an import. */
 export function noteCreatedDocuments(docs) {
-  for (const doc of [docs].flat()) {
+  for (const entry of [docs].flat()) {
+    // `pCreateEmbeddedDocuments` hands back Plutonium's own wrapper rather than
+    // the document, so unwrap before asking anything about it.
+    const doc = entry?.documentName ? entry : entry?.document;
     if (!doc || doc.documentName !== 'Item') continue;
+
     const flags = flagsOf(doc);
     if (!flags) continue;
 
@@ -294,6 +298,7 @@ async function linkOne(owner, kind, features) {
   await publishOwner(owner, kind);
 
   const entries = await libraryFeaturesFor(owner, kind, featurePack);
+  log(`"${owner.name}": library holds ${entries.length} feature(s) for it.`);
 
   if (!entries.length) {
     warn(
@@ -440,6 +445,14 @@ export async function linkPending() {
   const features = [...pending.features];
   clearPending();
 
+  // Logged plainly rather than behind the debug setting: when level-up hands out
+  // nothing, this line is the difference between "the import brought no
+  // features" and "it brought them and they did not match".
+  log(
+    `Linking ${owners.length} owner(s) with ${features.length} feature(s) from this import: `
+    + owners.map((o) => `${o.name} [${o.type}]`).join(', '),
+  );
+
   // Two archetypes of the same class in one batch have to be told apart by name;
   // a lone one does not. Counted per kind, so a class does not make its own
   // subclasses look ambiguous.
@@ -461,10 +474,19 @@ export async function linkPending() {
         if (mine.length) debug(`Found ${mine.length} feature(s) for "${owner.name}" already in the world.`);
       }
 
+      log(`"${owner.name}": ${mine.length} matching feature(s) to publish.`);
+
       const linked = await linkOne(owner, kind, mine);
       if (linked) await handoverToActor(owner, mine);
     } catch (e) {
-      error(`Failed to link "${owner?.name}".`, e);
+      // This is where a failure actually strands a class with no grants, so it
+      // is reported to the GM rather than only logged.
+      error(`Failed to link "${owner?.name}" — it will have no feature grants.`, e);
+      if (game.user.isGM) {
+        ui.notifications.error(
+          `Plutonium ⇄ A5E: could not wire up "${owner?.name}" — ${e.message}. See the console.`,
+        );
+      }
     }
   }
 }

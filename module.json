@@ -2,7 +2,7 @@
   "id": "plutonium-a5e",
   "title": "Plutonium ⇄ A5E Bridge",
   "description": "Lets Plutonium import 5etools content directly into the Level Up: Advanced 5th Edition system. Shims the dnd5e config Plutonium expects, then translates every document it creates from the dnd5e schema into the a5e schema, so imported creatures, objects, spells and features stay rollable.",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "authors": [
     {
       "name": "Jonkman"
