@@ -16,19 +16,26 @@ function getUtilDocuments() {
   return api?.salphar?.UtilDocuments ?? null;
 }
 
-// a5e's `FeatureItemA5e._preCreate` hands every feature to
-// `ActorGrantsManager.createInitialGrants`, which opens with
-// `this.actor.levels.classes` — and `levels` is prepared only on *character*
-// actors. So every creature trait imported onto an NPC throws a TypeError. It is
-// an unhandled rejection rather than a failed import (a5e does not await the
-// call), but it is one per trait, and it buries the errors that do matter.
+// a5e runs its grant routine from `_preCreate`, and there are two reasons that
+// is wrong for an import.
 //
-// a5e's own grant code passes `noGrant` to suppress exactly this routine, so we
-// use the same escape hatch. Nothing is lost: grants key off class levels, which
-// an NPC does not have. Characters keep the normal behaviour — that is what
-// hands out archetype features.
-function withGrantGuard(doc, opts) {
-  if (doc?.documentName !== 'Actor' || doc.type === 'character') return opts;
+// On an NPC it throws: `createInitialGrants` opens with
+// `this.actor.levels.classes`, and `levels` is prepared only on *character*
+// actors, so every creature trait produces an unhandled TypeError.
+//
+// On a character it is simply too early. A class or archetype arrives with empty
+// grants — they cannot be built until the features exist, which is after the
+// import finishes — and a5e opens its "Apply Grants" dialog for any class
+// regardless of whether there is anything to choose. The result is a modal with
+// nothing in it, applying nothing.
+//
+// a5e's own grant code passes `noGrant` to suppress that routine, so we use the
+// same escape hatch and apply the grants ourselves once they exist.
+function withGrantGuard(doc, opts, items) {
+  if (doc?.documentName !== 'Actor') return opts;
+
+  const tooEarly = items.some((item) => item?.type === 'class' || item?.type === 'archetype');
+  if (doc.type === 'character' && !tooEarly) return opts;
 
   return {
     ...opts,
@@ -87,7 +94,7 @@ export function installPlutoniumBridge() {
 
     await assignSpellBooks(doc, translated);
 
-    const created = await origCreateEmbedded(doc, translated, withGrantGuard(doc, opts));
+    const created = await origCreateEmbedded(doc, translated, withGrantGuard(doc, opts, translated));
     noteCreatedDocuments(created);
     return created;
   };
