@@ -528,16 +528,10 @@ export async function linkPending() {
     + owners.map((o) => `${o.name} [${o.type}]`).join(', '),
   );
 
-  // Importing a class imports the class alone. Rather than let that end in a
-  // class that hands out nothing, say so and offer the list that has them.
-  if (!features.length && game.user.isGM) {
-    warn('This import brought no features — Plutonium keeps them in a separate list.');
-    ui.notifications.warn(
-      'Plutonium ⇄ A5E: that import brought the class but not its features — they are a separate '
-      + "list in Plutonium. Open it with game.modules.get('plutonium-a5e').api.openFeatureImporter()",
-      { permanent: true },
-    );
-  }
+  // Owners that finish with nothing to hand out. Collected rather than guessed
+  // at up front: an import that brings no features is perfectly fine when the
+  // library already has them, and warning then is just noise.
+  const unwired = [];
 
   // Two archetypes of the same class in one batch have to be told apart by name;
   // a lone one does not. Counted per kind, so a class does not make its own
@@ -570,6 +564,7 @@ export async function linkPending() {
 
       const linked = await linkOne(owner, kind, mine);
       if (linked) await handoverToActor(owner, mine);
+      else unwired.push(owner.name);
     } catch (e) {
       // This is where a failure actually strands a class with no grants, so it
       // is reported to the GM rather than only logged.
@@ -580,6 +575,16 @@ export async function linkPending() {
         );
       }
     }
+  }
+
+  if (unwired.length && game.user.isGM) {
+    const names = [...new Set(unwired)].join(', ');
+    warn(`${names} — no features found anywhere, so nothing will be handed out on level-up.`);
+    ui.notifications.warn(
+      `Plutonium ⇄ A5E: ${names} has no features to hand out. Importing a class does not import `
+      + "its features — open that list with game.modules.get('plutonium-a5e').api.openFeatureImporter()",
+      { permanent: true },
+    );
   }
 }
 
