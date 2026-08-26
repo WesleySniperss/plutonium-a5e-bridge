@@ -30,6 +30,15 @@ export function registerSettings() {
     default: true,
   });
 
+  // Which imported classes a5e-mancer should offer combat maneuvers to, and on
+  // whose progression. Edited through api.setClassManeuvers(), not by hand.
+  game.settings.register(ID, 'classManeuvers', {
+    scope: 'world',
+    config: false,
+    type: Object,
+    default: {},
+  });
+
   // Not shown: how far this world has been brought forward. See migrate.js.
   game.settings.register(ID, 'migration', {
     scope: 'world',

@@ -226,6 +226,33 @@ api.rebuildArchetypeGrants('Item.abc123');
 api.rebuildClassGrants('Item.def456');
 ```
 
+### Combat maneuvers for an imported class
+
+a5e-mancer decides whether a class gets maneuvers by looking its name up in a
+table of a5e's own classes; an imported one is not in it, so the maneuver step
+never appears. Nothing can be derived here — 5e has no maneuvers at all, so
+there are no traditions, no degrees and no "known at level N" column to convert.
+Someone has to decide what the class should get.
+
+That decision is world data rather than an edit inside a5e-mancer:
+
+```js
+const api = game.modules.get('plutonium-a5e').api;
+
+await api.maneuverTemplates();          // the a5e classes you can copy
+
+await api.setClassManeuvers('illrigger', {
+  basedOn: 'herald',                    // whose progression to use
+  allowedTraditions: ['sanguineKnot', 'temperedIron', 'adamantMountain'],
+});
+```
+
+`basedOn` copies another class's `maneuversKnown` and `maxDegree` — the honest
+way to do this is to name the a5e class yours is closest to. Give
+`maneuversKnown` and `maxDegree` explicitly instead if you have your own table.
+Pass `null` as the entry to take the maneuvers away again. The setting is
+re-applied on every load.
+
 ### Deliberate gaps
 
 **How a class grows, in both systems.** Most of a class's progression is not a
