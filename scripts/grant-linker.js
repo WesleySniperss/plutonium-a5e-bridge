@@ -514,6 +514,17 @@ export async function linkPending() {
     + owners.map((o) => `${o.name} [${o.type}]`).join(', '),
   );
 
+  // Importing a class imports the class alone. Rather than let that end in a
+  // class that hands out nothing, say so and offer the list that has them.
+  if (!features.length && game.user.isGM) {
+    warn('This import brought no features — Plutonium keeps them in a separate list.');
+    ui.notifications.warn(
+      'Plutonium ⇄ A5E: that import brought the class but not its features — they are a separate '
+      + "list in Plutonium. Open it with game.modules.get('plutonium-a5e').api.openFeatureImporter()",
+      { permanent: true },
+    );
+  }
+
   // Two archetypes of the same class in one batch have to be told apart by name;
   // a lone one does not. Counted per kind, so a class does not make its own
   // subclasses look ambiguous.
@@ -589,6 +600,25 @@ async function rebuild(uuid, kind) {
   }
 
   return candidates.length;
+}
+
+/**
+ * Open Plutonium's "Class & Subclass Features" list directly.
+ *
+ * Importing a class imports the class, and nothing else: its features live in a
+ * separate list, which is easy to miss among the twenty-odd entries in the
+ * import chooser. Plutonium's API can hand that list over by name, so there is
+ * no need to find it.
+ */
+export async function openFeatureImporter() {
+  const get = game.modules.get('plutonium')?.api?.importer?.pGetImporter;
+  if (!get) throw new Error('Plutonium exposes no importer API — is it enabled?');
+
+  const importer = await get({ prop: 'classFeature' });
+  if (!importer) throw new Error('Plutonium has no importer for class features.');
+
+  importer.render(true);
+  return importer;
 }
 
 /**

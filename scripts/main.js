@@ -1,5 +1,6 @@
 import {
   adoptExistingFeatures,
+  openFeatureImporter,
   linkPending,
   rebuildArchetypeGrants,
   rebuildClassGrants,
@@ -76,6 +77,7 @@ Hooks.once('ready', () => {
     getInstalledStubs,
     installPlutoniumBridge,
     adoptExistingFeatures,
+    openFeatureImporter,
     repairUseConsumers,
     rebuildArchetypeGrants,
     rebuildClassGrants,
