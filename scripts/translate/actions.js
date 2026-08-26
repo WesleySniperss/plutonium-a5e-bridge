@@ -183,9 +183,35 @@ function addHealingRoll(rolls, healing, { isSpell }) {
   };
 }
 
-function savePrompt(save, onSave) {
+// A statblock says "make a Charisma saving throw" in its text, and homebrew often
+// leaves the structured field empty because nothing generated it. Reading the
+// ability back out of the text beats guessing: the previous fallback quietly
+// asked for Constitution on every such feature, so the description and the roll
+// disagreed.
+const ABILITY_WORDS = [
+  [/\bstrength\b/i, 'str'],
+  [/\bdexterity\b/i, 'dex'],
+  [/\bconstitution\b/i, 'con'],
+  [/\bintelligence\b/i, 'int'],
+  [/\bwisdom\b/i, 'wis'],
+  [/\bcharisma\b/i, 'cha'],
+];
+
+export function abilityFromText(text) {
+  const plain = String(text ?? '').replace(/<[^>]*>/g, ' ');
+
+  // Anchor on the saving throw itself: a feature can mention several abilities,
+  // and the one immediately before "saving throw" is the one being rolled.
+  const near = plain.match(/\b(strength|dexterity|constitution|intelligence|wisdom|charisma)\b[^.]{0,20}?\bsav/i);
+  const found = ABILITY_WORDS.find(([pattern]) => pattern.test(near?.[1] ?? ''));
+  if (found) return found[1];
+
+  return ABILITY_WORDS.find(([pattern]) => pattern.test(plain))?.[1] ?? null;
+}
+
+function savePrompt(save, onSave, text) {
   const abilities = Array.isArray(save?.ability) ? save.ability : [save?.ability];
-  const ability = abilities.filter(Boolean)[0] ?? 'con';
+  const ability = abilities.filter(Boolean)[0] ?? abilityFromText(text) ?? 'con';
   const calc = save?.dc?.calculation;
 
   return {
@@ -399,7 +425,11 @@ export function activityToAction(activity, opts = {}) {
     }
 
     case 'save': {
-      prompts[id()] = savePrompt(activity.save, activity.damage?.onSave);
+      prompts[id()] = savePrompt(
+        activity.save,
+        activity.damage?.onSave,
+        `${activity.description?.chatFlavor ?? ''} ${opts.description ?? ''}`,
+      );
       // Nothing crits on a saving throw.
       addDamageRolls(rolls, activity.damage?.parts, { isSpell, canCrit: false });
       break;

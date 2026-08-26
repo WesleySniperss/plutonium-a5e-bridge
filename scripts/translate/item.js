@@ -167,6 +167,7 @@ function toObject(data, ctx) {
     actions: activitiesToActions(system.activities, {
       itemName: data.name,
       img: data.img,
+      description: descriptionOf(system),
       ...ctx,
       isWeapon: kind.objectType === 'weapon',
       magicBonus: Number(system.magicalBonus) || 0,
@@ -254,6 +255,7 @@ function toSpell(data, ctx) {
     actions: activitiesToActions(system.activities, {
       itemName: data.name,
       img: data.img,
+      description: descriptionOf(system),
       isSpell: true,
       spellLevel: Number(system.level) || 0,
       ...ctx,
@@ -301,6 +303,7 @@ function toFeature(data, ctx) {
     actions: activitiesToActions(system.activities, {
       itemName: data.name,
       img: data.img,
+      description: descriptionOf(system),
       ...ctx,
     }),
   };

@@ -17,7 +17,7 @@ installFoundryStub();
 
 const { translateDocument, pruneUpdate } = await import('../scripts/translate/index.js');
 const { actorRollContext } = await import('../scripts/translate/actor.js');
-const { convertUses, translateFormula, withMagic } = await import('../scripts/translate/actions.js');
+const { abilityFromText, convertUses, translateFormula, withMagic } = await import('../scripts/translate/actions.js');
 const origins = await import('../scripts/translate/origins.js');
 const { buildFeatureGrants, parseClassFeatureHash, parseSubclassFeatureHash } = origins;
 const { assignSpellBooks, attachSpellBook, spellBookIdOf } = await import('../scripts/spellbook.js');
@@ -425,6 +425,52 @@ test('save trait: "Recharge 5" becomes a5e recharge uses', () => {
   assert.equal(out.system.uses.recharge.threshold, 5);
   assert.equal(out.system.uses.recharge.formula, '1d6');
   assert.equal(out.system.uses.value, 1);
+});
+
+// --- which saving throw -----------------------------------------------------
+
+test('save: the ability is read from the text when the field is empty', () => {
+  // Homebrew often leaves `save.ability` empty because nothing generated it. The
+  // old fallback quietly asked for Constitution, so the description said
+  // Charisma and the roll asked for Con.
+  const feature = translateDocument('Item', {
+    name: 'Interdiction',
+    type: 'feat',
+    system: {
+      description: { value: '<p>The target must succeed on a Charisma saving throw or be marked.</p>' },
+      type: { value: 'class' },
+      activities: {
+        a: {
+          _id: 'a',
+          type: 'save',
+          activation: { type: 'action', value: 1 },
+          save: { ability: [], dc: { calculation: '', formula: '13' } },
+          damage: { parts: [] },
+        },
+      },
+    },
+  });
+
+  assert.equal(first(first(feature.system.actions).prompts).ability, 'cha');
+});
+
+test('save: an ability the data does name is trusted over the text', () => {
+  assert.equal(abilityFromText('a Charisma saving throw'), 'cha');
+  assert.equal(translateDocument('Item', fireBreath).system.actions
+    && first(first(translateDocument('Item', fireBreath).system.actions).prompts).ability, 'dex');
+});
+
+test('save: the ability nearest the words "saving throw" wins', () => {
+  // Features mention several abilities; only one is the one being rolled.
+  assert.equal(
+    abilityFromText('Add your Charisma modifier. The target makes a Wisdom saving throw.'),
+    'wis',
+  );
+});
+
+test('save: nothing to read still yields a usable prompt', () => {
+  assert.equal(abilityFromText(''), null);
+  assert.equal(abilityFromText('<p>No abilities here.</p>'), null);
 });
 
 // --- roll-data names --------------------------------------------------------
