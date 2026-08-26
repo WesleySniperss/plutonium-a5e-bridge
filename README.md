@@ -205,6 +205,16 @@ api.rebuildClassGrants('Item.def456');
 
 ### Deliberate gaps
 
+**Scaling only exists for classes 5etools can match to the SRD.** dnd5e keeps
+"at level N this is Xd6" in a `ScaleValue` advancement, and a5e keeps the same
+table in `system.resources[].reference`, so the two convert cleanly — sneak
+attack dice, ki points, rage uses. But Plutonium only *has* those values for
+classes it can line up with the dnd5e SRD. A homebrew class carries no
+machine-readable progression anywhere in 5etools, so there is nothing to
+convert: its features import with whatever numbers the text states at the level
+you imported them, and do not grow. That is a limit of the source data, not of
+this bridge — the same import into dnd5e does not scale either.
+
 **A class brings its features and its hit die — not the rest of its mechanics.**
 "Here is a feature at level N" maps cleanly, and that is now converted for
 classes as well as subclasses. The rest of what dnd5e keeps in Advancement does

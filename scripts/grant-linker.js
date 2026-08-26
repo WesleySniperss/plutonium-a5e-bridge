@@ -314,6 +314,8 @@ async function linkOne(owner, kind, features) {
 
   log(`Linked "${owner.name}": ${entries.length} feature(s) across ${Object.keys(grants).length} level(s).`);
 
+  if (kind === KINDS.class) await setArchetypeLevel(owner);
+
   if (setting('publishArchetypes', true) && !owner.pack) {
     const ownerPack = await getOrCreatePack(kind.ownerPack);
     const key = flagsOf(owner)?.[kind.ownerFlag]?.hash ?? slug(owner.name);
@@ -322,6 +324,44 @@ async function linkOne(owner, kind, features) {
   }
 
   return true;
+}
+
+/**
+ * Tell the class which level picks an archetype.
+ *
+ * a5e keeps that on the class as `system.archetypeLevel`, and it is what decides
+ * when the builder offers the choice. dnd5e has no equivalent field — it just
+ * knows a subclass's features start at some level — and Plutonium emits no
+ * Subclass advancement, so the number has to be inferred: the earliest level any
+ * of this class's subclass features appears at.
+ *
+ * Left alone when nothing is known, so a5e's own default of 3 stands.
+ */
+async function setArchetypeLevel(owner) {
+  const meta = ownerMetaFor(owner, KINDS.class);
+
+  const levels = [];
+  const pack = game.packs.get(`world.${KINDS.archetype.featurePack[0]}`);
+
+  if (pack) {
+    const index = await pack.getIndex({ fields: [`flags.${FLAG_SCOPE}`] });
+    for (const entry of index) {
+      const fm = entry.flags?.[FLAG_SCOPE]?.subclassFeature;
+      if (fm && sameClassAs(fm, meta)) levels.push(Number(fm.level) || 0);
+    }
+  }
+
+  for (const item of game.items) {
+    const fm = flagsOf(item)?.subclassFeature;
+    if (fm && sameClassAs(fm, meta)) levels.push(Number(fm.level) || 0);
+  }
+
+  const earliest = Math.min(...levels.filter((n) => n >= 1 && n <= 20));
+  if (!Number.isFinite(earliest)) return;
+  if (owner.system?.archetypeLevel === earliest) return;
+
+  await owner.update({ 'system.archetypeLevel': earliest });
+  log(`"${owner.name}" picks its archetype at level ${earliest}.`);
 }
 
 /**

@@ -17,6 +17,8 @@ import {
   classMeta,
   isClassFeatureItem,
   isSubclassFeatureItem,
+  resourcesFromAdvancement,
+  spellcastingOf,
   subclassFeatureMeta,
   translateSubclass,
 } from './origins.js';
@@ -332,6 +334,10 @@ function toOrigin(data, a5eType) {
       // reached, so importing a class onto a 3rd-level character has to carry it.
       classLevels: Math.max(1, Number(system.levels) || 1),
       hp: { hitDiceSize: Number.isFinite(die) && die ? die : 6 },
+      // Drives spell slots. Same shape as a subclass's, so the same mapper does.
+      spellcasting: spellcastingOf(system),
+      // What makes a feature's damage and uses grow with level.
+      resources: resourcesFromAdvancement(system),
     };
   }
 

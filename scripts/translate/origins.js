@@ -176,6 +176,62 @@ export function translateSubclass(data, { description, source }) {
 }
 
 /**
+ * dnd5e `ScaleValue` advancements -> a5e class resources.
+ *
+ * Both say the same thing: "at class level N this number is X". dnd5e keeps it
+ * in an advancement whose `scale` is keyed by level; a5e keeps it in
+ * `system.resources[].reference`, keyed by level 1-20, and `ClassResourceManager`
+ * resolves the entry for the current class level into roll data.
+ *
+ * This is what makes a feature's damage and uses grow with level. Note that
+ * Plutonium only has these for classes it can match against the dnd5e SRD —
+ * homebrew classes carry no machine-readable progression at all, so there is
+ * nothing to convert for them.
+ */
+export function resourcesFromAdvancement(system) {
+  const advancement = Object.values(system?.advancement ?? {});
+
+  return advancement
+    .filter((entry) => entry?.type === 'ScaleValue' && entry.configuration?.scale)
+    .map((entry) => {
+      const slug = String(entry.configuration.identifier || entry.title || '')
+        .toLowerCase().replace(/[^a-z0-9]+/g, '');
+      if (!slug) return null;
+
+      const reference = {};
+      for (const [level, step] of Object.entries(entry.configuration.scale)) {
+        const n = Number(level);
+        if (!Number.isInteger(n) || n < 1 || n > 20) continue;
+        reference[n] = scaleValueToFormula(step);
+      }
+      if (!Object.keys(reference).length) return null;
+
+      return {
+        name: String(entry.title || entry.configuration.identifier || 'Resource'),
+        slug,
+        consumable: false,
+        displayOnCore: true,
+        recovery: 'longRest',
+        reference,
+      };
+    })
+    .filter(Boolean);
+}
+
+/** One rung of a dnd5e scale: a plain number, a die, or a distance. */
+function scaleValueToFormula(step) {
+  if (step == null) return '';
+  if (typeof step === 'number' || typeof step === 'string') return String(step);
+
+  if (step.number && step.faces) {
+    return `${step.number}d${step.faces}${step.modifiers?.length ? '' : ''}`;
+  }
+  if (step.faces) return `1d${step.faces}`;
+  if (step.value != null) return String(step.value);
+  return '';
+}
+
+/**
  * What the linker needs to recognise an imported class again, in the same shape
  * as an archetype's, so one matcher serves both. A class is its own "class", so
  * `identifier` and `classIdentifier` are the same thing here.
@@ -200,7 +256,7 @@ const CASTER_PROGRESSION = {
   pact: 'pact',
 };
 
-function spellcastingOf(system) {
+export function spellcastingOf(system) {
   const progression = system?.spellcasting?.progression;
   const casterType = CASTER_PROGRESSION[progression] ?? 'none';
   const ability = system?.spellcasting?.ability || 'none';

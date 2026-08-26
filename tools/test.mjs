@@ -723,6 +723,74 @@ test('class: the linker is told what this class is', () => {
   assert.equal(meta.hash, 'fighter_phb');
 });
 
+test('class: spellcasting drives a5e slots', () => {
+  const wizard = translateDocument('Item', {
+    ...fighter,
+    name: 'Wizard',
+    system: { ...fighter.system, identifier: 'wizard', spellcasting: { progression: 'full', ability: 'int' } },
+  });
+  assert.equal(wizard.system.spellcasting.casterType, 'full');
+  assert.equal(wizard.system.spellcasting.ability.value, 'int');
+  assert.equal(translateDocument('Item', fighter).system.spellcasting.casterType, 'none');
+});
+
+test('class: a scale value becomes an a5e class resource', () => {
+  // dnd5e: "at rogue level N, sneak attack is Xd6". a5e: the same table, in
+  // `resources[].reference`, resolved for the current class level at prepare time.
+  const rogue = translateDocument('Item', {
+    ...fighter,
+    name: 'Rogue',
+    system: {
+      ...fighter.system,
+      identifier: 'rogue',
+      advancement: {
+        a: {
+          _id: 'a',
+          type: 'ScaleValue',
+          title: 'Sneak Attack',
+          configuration: {
+            type: 'dice',
+            identifier: 'sneak-attack',
+            scale: { 1: { number: 1, faces: 6 }, 3: { number: 2, faces: 6 }, 5: { number: 3, faces: 6 } },
+          },
+        },
+      },
+    },
+  });
+
+  const [resource] = rogue.system.resources;
+  assert.equal(resource.name, 'Sneak Attack');
+  assert.equal(resource.slug, 'sneakattack');
+  assert.equal(resource.reference[1], '1d6');
+  assert.equal(resource.reference[3], '2d6');
+  assert.equal(resource.reference[5], '3d6');
+});
+
+test('class: a numeric scale value survives too', () => {
+  const monk = translateDocument('Item', {
+    ...fighter,
+    system: {
+      ...fighter.system,
+      advancement: {
+        b: {
+          _id: 'b',
+          type: 'ScaleValue',
+          title: 'Ki Points',
+          configuration: { type: 'number', identifier: 'ki-points', scale: { 2: { value: 2 }, 3: { value: 3 } } },
+        },
+      },
+    },
+  });
+  const [resource] = monk.system.resources;
+  assert.equal(resource.reference[2], '2');
+  assert.equal(resource.reference[3], '3');
+  assert.equal(resource.recovery, 'longRest');
+});
+
+test('class: no advancement means no resources, not a crash', () => {
+  assert.deepEqual(translateDocument('Item', fighter).system.resources, []);
+});
+
 test('class feature: level and class come out of the 5etools hash', () => {
   const out = translateDocument('Item', actionSurge);
   const meta = out.flags['plutonium-a5e'].classFeature;
