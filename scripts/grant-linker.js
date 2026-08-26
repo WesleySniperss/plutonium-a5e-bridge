@@ -350,7 +350,11 @@ async function linkOne(owner, kind, features) {
     [`flags.${FLAG_SCOPE}.grantsLinked`]: true,
   });
 
-  log(`Linked "${owner.name}": ${entries.length} feature(s) across ${Object.keys(grants).length} level(s).`);
+  // Naming the levels rather than counting them: "13 levels" invites the
+  // question of what happened to the other seven, when the answer is usually
+  // that nothing is gained there.
+  const levels = [...new Set(entries.map((e) => e.level))].sort((a, b) => a - b);
+  log(`Linked "${owner.name}": ${entries.length} feature(s) at level ${levels.join(', ')}.`);
 
   if (kind === KINDS.class) await setArchetypeLevel(owner);
 
