@@ -205,15 +205,20 @@ api.rebuildClassGrants('Item.def456');
 
 ### Deliberate gaps
 
-**Scaling only exists for classes 5etools can match to the SRD.** dnd5e keeps
-"at level N this is Xd6" in a `ScaleValue` advancement, and a5e keeps the same
-table in `system.resources[].reference`, so the two convert cleanly — sneak
-attack dice, ki points, rage uses. But Plutonium only *has* those values for
-classes it can line up with the dnd5e SRD. A homebrew class carries no
-machine-readable progression anywhere in 5etools, so there is nothing to
-convert: its features import with whatever numbers the text states at the level
-you imported them, and do not grow. That is a limit of the source data, not of
-this bridge — the same import into dnd5e does not scale either.
+**How a class grows, in both systems.** Most of a class's progression is not a
+formula at all — it is a new feature at each level. Plutonium builds one feature
+document per level and wires them with an `ItemGrant` advancement per level;
+dnd5e's engine hands them out as you level. a5e does the same thing through
+`system.grants`, which is what this bridge converts them into. That works for
+homebrew exactly as it works for the SRD.
+
+**Formula scaling is the part that needs SRD data.** Where dnd5e does use a
+formula — sneak attack dice, ki points, rage uses — it keeps the table in a
+`ScaleValue` advancement, and a5e keeps the same table in
+`system.resources[].reference`. Those convert cleanly. But Plutonium only *has*
+`ScaleValue` for classes it can line up with the dnd5e SRD, so a homebrew class
+gets none — in dnd5e either. Its features still arrive on schedule and state
+their own numbers; there is just no `@scale` value behind them.
 
 **A class brings its features and its hit die — not the rest of its mechanics.**
 "Here is a feature at level N" maps cleanly, and that is now converted for

@@ -44,6 +44,69 @@ async function readSystems(module) {
   }
 }
 
+const FLAG = 'plutonium-a5e';
+
+/** Every class and archetype this bridge imported, wherever it ended up. */
+function importedOrigins() {
+  const out = [];
+  const seen = new Set();
+
+  const consider = (item) => {
+    if (!item || seen.has(item.uuid)) return;
+    if (item.type !== 'class' && item.type !== 'archetype') return;
+    const flags = item.flags?.[FLAG];
+    if (!flags?.class && !flags?.archetype) return;
+    seen.add(item.uuid);
+    out.push(item);
+  };
+
+  for (const item of game.items) consider(item);
+  for (const actor of game.actors) for (const item of actor.items) consider(item);
+  return out;
+}
+
+/**
+ * Whether each imported class and archetype actually got its feature grants.
+ *
+ * This is the question behind "levelling up does nothing". A class hands out its
+ * features through `system.grants`; if those are empty, nothing arrives at level
+ * 2 and it looks like the bridge does not work at all. It usually means the
+ * class was imported before grants existed, or its features were never in the
+ * library to point at.
+ */
+async function inspectImported(findings) {
+  const rows = [];
+
+  for (const item of importedOrigins()) {
+    const grants = Object.values(item.system?.grants ?? {});
+    const featureGrants = grants.filter((g) => g?.grantType === 'feature');
+    const levels = featureGrants.map((g) => g.level).sort((a, b) => a - b);
+
+    const row = {
+      name: item.name,
+      type: item.type,
+      uuid: item.uuid,
+      on: item.parent?.name ?? 'the item directory',
+      classLevels: item.system?.classLevels,
+      archetypeLevel: item.system?.archetypeLevel,
+      featureGrants: featureGrants.length,
+      levels: levels.join(', ') || '—',
+      resources: (item.system?.resources ?? []).length,
+    };
+    rows.push(row);
+
+    if (!featureGrants.length) {
+      const rebuild = item.type === 'class' ? 'rebuildClassGrants' : 'rebuildArchetypeGrants';
+      findings.problems.push(
+        `"${item.name}" has no feature grants, so levelling up adds nothing. `
+        + `Rebuild them: game.modules.get('${FLAG}').api.${rebuild}('${item.uuid}')`,
+      );
+    }
+  }
+
+  return rows;
+}
+
 /**
  * Work out why Plutonium is not usable, if it is not.
  * @returns {Promise<object>} the findings, also printed to the console
@@ -128,8 +191,14 @@ export async function diagnose() {
     );
   }
 
+  findings.imported = await inspectImported(findings);
+
   console.group(`${NAME} — diagnosis`);
   console.log(findings);
+  if (findings.imported.length) {
+    console.log('Imported classes and archetypes:');
+    console.table(findings.imported);
+  }
   if (!findings.problems.length) console.log('%cNothing wrong found.', 'color: #4caf50; font-weight: bold;');
   else findings.problems.forEach((p) => console.warn(p));
   if (findings.fix) console.info(`\nHow to fix it:\n${findings.fix}`);
