@@ -30,6 +30,14 @@ export function registerSettings() {
     default: true,
   });
 
+  // Not shown: how far this world has been brought forward. See migrate.js.
+  game.settings.register(ID, 'migration', {
+    scope: 'world',
+    config: false,
+    type: Number,
+    default: 0,
+  });
+
   game.settings.register(ID, 'debug', {
     name: 'Verbose conversion logging',
     hint: 'Log every converted document and every dnd5e config path Plutonium asks for that this bridge does not model. Use it when something imports wrong.',

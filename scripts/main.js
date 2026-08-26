@@ -8,6 +8,7 @@ import {
 import { installPlutoniumBridge } from './bridge.js';
 import { diagnose, report, reportIfBroken } from './diagnose.js';
 import { repairUseConsumers } from './repair.js';
+import { runMigrations } from './migrate.js';
 import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from './config-shim.js';
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { registerSettings } from './settings.js';
@@ -80,6 +81,9 @@ Hooks.once('ready', () => {
     rebuildClassGrants,
     linkPending,
   };
+
+  // Bring a world imported by an older bridge up to what this one produces.
+  runMigrations();
 
   log('Ready.');
 });
