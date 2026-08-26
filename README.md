@@ -126,6 +126,13 @@ library with the whole progression. The two are complementary, not alternatives:
 - Sidebar import — stocks the feature library and the class/archetype compendium.
 - Sheet import — sets the character up the way Plutonium intends.
 
+**Importing a class does not import its features.** Plutonium keeps them in a
+separate list: **Class & Subclass Features**, in the *Items* tab of the sidebar.
+A class imported on its own arrives with nothing to hand out, and the log says
+so — `0 feature(s) from this import`. Import that list too, filtered to the
+class you want; the grants are rebuilt as soon as the features land, without
+importing the class again.
+
 Grants are always rebuilt from **everything the library holds**, never just the
 last import, so doing both in either order converges on the complete set.
 Importing at a higher level later tops the library up.

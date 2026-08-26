@@ -457,15 +457,54 @@ export function scheduleLink() {
   }, 250);
 }
 
+/**
+ * The classes and archetypes a batch of freshly imported features belong to.
+ *
+ * Plutonium imports features through a separate list — "Class & Subclass
+ * Features", in the Items tab — so an import can bring nothing but features.
+ * Without this, that import wired up nothing at all and the class it belongs to
+ * had to be imported again to notice them.
+ */
+function ownersForFeatures(features) {
+  const candidates = [...game.items];
+  for (const actor of game.actors) candidates.push(...actor.items);
+
+  const owners = [];
+  const seen = new Set();
+
+  for (const owner of candidates) {
+    const kind = kindOf(owner);
+    if (!kind || seen.has(owner.uuid)) continue;
+
+    const meta = ownerMetaFor(owner, kind);
+    const mine = features.some((f) => belongsTo(flagsOf(f)?.[kind.featureFlag], meta, kind));
+    if (!mine) continue;
+
+    seen.add(owner.uuid);
+    owners.push(owner);
+  }
+
+  return owners;
+}
+
 export async function linkPending() {
-  if (!pending.owners.length || !game.user.isGM) {
+  if (!game.user.isGM) {
     clearPending();
     return;
   }
 
-  const owners = [...pending.owners];
+  let owners = [...pending.owners];
   const features = [...pending.features];
   clearPending();
+
+  if (!owners.length && features.length) {
+    owners = ownersForFeatures(features);
+    if (owners.length) {
+      log(`Import brought only features; re-wiring ${owners.length} owner(s) they belong to.`);
+    }
+  }
+
+  if (!owners.length) return;
 
   // Logged plainly rather than behind the debug setting: when level-up hands out
   // nothing, this line is the difference between "the import brought no
