@@ -122,7 +122,7 @@ function clearPending() {
 
 // --- the module's compendiums ----------------------------------------------
 
-async function getOrCreatePack([name, label]) {
+export async function getOrCreatePack([name, label]) {
   const collection = `world.${name}`;
   const existing = game.packs.get(collection);
   if (existing) return existing;
@@ -143,7 +143,7 @@ async function getOrCreatePack([name, label]) {
  * published this exact 5etools entry — re-importing a class should not leave a
  * trail of duplicates for its grants to fight over.
  */
-async function publish(pack, item, libraryKey) {
+export async function publish(pack, item, libraryKey) {
   const index = await pack.getIndex({ fields: ['name', 'type', `flags.${FLAG_SCOPE}.libraryKey`] });
 
   const match = index.find((entry) => {

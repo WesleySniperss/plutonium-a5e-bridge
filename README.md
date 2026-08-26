@@ -251,6 +251,41 @@ This is the route worth using for classes, because the Charactermancer sets the
 character up the way Plutonium intends — proficiencies included, which this
 bridge now translates.
 
+### Features that let you choose
+
+Some features hand you nothing — they let you pick. "You learn one interdict
+boon of your choice"; "choose a Fighting Style". Two things follow from how
+5etools stores those, and neither is a conversion problem:
+
+- **The options are a separate import.** They live on their own page and behind
+  their own list, *Other Options & Features*. A class table can list a feature at
+  2nd level while no class feature by that name exists anywhere — the table row
+  is the group, the options are the entries. Illrigger's table has 18 class
+  features and the class-feature import brings 17, the missing one being exactly
+  that.
+- **How many you get, at which level, is only in the class table** — rendered as
+  HTML, never as data. Nothing can read it.
+
+So the options import, and the rest is stated once:
+
+```js
+const api = game.modules.get('plutonium-a5e').api;
+
+api.importOnto(actor, 'optional');   // bring the options in
+api.listOptions('boon');             // see what arrived
+
+await api.addChoiceGrant('Item.abc123', {
+  level: 2,
+  count: 1,
+  match: 'boon',                     // or uuids: [...] to be exact
+  label: 'Interdict Boon',
+});
+```
+
+That becomes an a5e grant with its `options` filled in and a `total`, which is
+what makes a5e ask rather than hand everything over. `api.clearChoiceGrants(uuid)`
+takes them off again; rebuilding a class's features leaves them alone.
+
 ### Combat maneuvers for an imported class
 
 a5e-mancer decides whether a class gets maneuvers by looking its name up in a

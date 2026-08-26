@@ -341,7 +341,7 @@ export function buildFeatureGrants(features, label = 'Archetype Features') {
   return grants;
 }
 
-function ordinal(n) {
+export function ordinal(n) {
   const rem100 = n % 100;
   if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
   switch (n % 10) {
