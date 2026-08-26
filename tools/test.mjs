@@ -427,6 +427,57 @@ test('save trait: "Recharge 5" becomes a5e recharge uses', () => {
   assert.equal(out.system.uses.value, 1);
 });
 
+// --- spending charges -------------------------------------------------------
+//
+// a5e never spends anything just because an item has uses. Its
+// `ResourceConsumptionManager` walks the action's `consumers` and decrements
+// only what it finds there, so without one the charges sit at full forever.
+
+test('recharge trait: the action is given something to spend', () => {
+  const action = first(translateDocument('Item', fireBreath).system.actions);
+  const consumers = Object.values(action.consumers);
+
+  assert.equal(consumers.length, 1);
+  assert.equal(consumers[0].type, 'itemUses', "the uses are the item's, so the consumer draws on those");
+  assert.equal(consumers[0].quantity, 1);
+  assert.equal(consumers[0].default, true, 'a consumer that is not selected spends nothing');
+});
+
+test('per-action uses get their own consumer', () => {
+  const feature = translateDocument('Item', {
+    name: 'Second Wind',
+    type: 'feat',
+    system: {
+      description: { value: '' },
+      type: { value: 'class' },
+      activities: {
+        a: {
+          _id: 'a',
+          type: 'utility',
+          activation: { type: 'bonus', value: 1 },
+          uses: { max: '1', spent: 0, recovery: [{ period: 'sr', type: 'recoverAll' }] },
+          roll: { formula: '1d10', name: 'Healing' },
+        },
+      },
+    },
+  });
+
+  const action = first(feature.system.actions);
+  assert.equal(action.uses.max, '1');
+  assert.equal(Object.values(action.consumers)[0].type, 'actionUses');
+});
+
+test('a spell keeps its slot consumer and does not gain a second', () => {
+  const action = first(translateDocument('Item', fireball).system.actions);
+  const types = Object.values(action.consumers).map((c) => c.type);
+  assert.deepEqual(types, ['spell']);
+});
+
+test('an item without uses gets no consumer', () => {
+  const action = first(translateDocument('Item', longsword).system.actions);
+  assert.deepEqual(Object.values(action.consumers), []);
+});
+
 // --- objects ----------------------------------------------------------------
 
 test('weapon: type, properties and versatile die', () => {

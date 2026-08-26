@@ -284,6 +284,17 @@ documents that came back, sees one missing, and fails the whole creature with
 files every imported spell under the actor's first spell book, creating one if
 the actor somehow has none.
 
+**Charges are spent by a consumer, not by having uses.** a5e's
+`ResourceConsumptionManager` walks an action's `consumers` and decrements only
+what it finds there — `itemUses` draws on the item's own charges, `actionUses`
+on the action's. An item that merely *has* `system.uses` displays its charges
+and never spends them, so the bridge adds the matching consumer whenever it
+converts uses. For content imported before it did:
+
+```js
+await game.modules.get('plutonium-a5e').api.repairUseConsumers();
+```
+
 **Grants are a character thing.** `FeatureItemA5e._preCreate` hands every feature
 to `ActorGrantsManager.createInitialGrants`, which starts by reading
 `actor.levels.classes` — and `levels` is only prepared on *character* actors. On

@@ -1,4 +1,10 @@
-import { activitiesToActions, convertUses, withMagic } from './actions.js';
+import {
+  activitiesToActions,
+  addUsesConsumer,
+  convertUses,
+  defaultAction,
+  withMagic,
+} from './actions.js';
 import {
   EQUIPMENT_SUBTYPE,
   FEATURE_TYPE,
@@ -173,7 +179,11 @@ function toObject(data, ctx) {
   if (ac) out.ac = ac;
 
   const uses = convertUses(system.uses);
-  if (uses) out.uses = uses;
+  if (uses) {
+    out.uses = uses;
+    // Without a consumer a5e shows the charges and never spends them.
+    addUsesConsumer(defaultAction(out.actions), 'itemUses');
+  }
 
   if (kind.objectType === 'container') {
     out.capacity = {
@@ -296,7 +306,11 @@ function toFeature(data, ctx) {
   };
 
   const uses = convertUses(system.uses);
-  if (uses) out.uses = uses;
+  if (uses) {
+    out.uses = uses;
+    // Without a consumer a5e shows the charges and never spends them.
+    addUsesConsumer(defaultAction(out.actions), 'itemUses');
+  }
 
   return out;
 }

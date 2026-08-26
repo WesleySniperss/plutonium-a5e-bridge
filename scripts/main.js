@@ -7,6 +7,7 @@ import {
 } from './grant-linker.js';
 import { installPlutoniumBridge } from './bridge.js';
 import { diagnose, report, reportIfBroken } from './diagnose.js';
+import { repairUseConsumers } from './repair.js';
 import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from './config-shim.js';
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { registerSettings } from './settings.js';
@@ -74,6 +75,7 @@ Hooks.once('ready', () => {
     getInstalledStubs,
     installPlutoniumBridge,
     adoptExistingFeatures,
+    repairUseConsumers,
     rebuildArchetypeGrants,
     rebuildClassGrants,
     linkPending,

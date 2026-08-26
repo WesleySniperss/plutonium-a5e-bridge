@@ -196,6 +196,33 @@ function spellConsumer(level) {
   };
 }
 
+// a5e never spends anything just because a thing has uses. `ResourceConsumptionManager`
+// walks the action's `consumers` and only decrements what it finds there:
+//
+//   s === "actionUses" ? this.#o(t) : s === "itemUses" ? this.#c(i) : ...
+//
+// So an imported feature with "3 charges" showed its charges and never spent
+// them. `itemUses` draws down the item's own `system.uses`; `actionUses` draws
+// down the action's.
+function usesConsumer(type) {
+  return { type, quantity: 1, default: true, label: '' };
+}
+
+/** Give the action something to spend, if the thing it belongs to has uses. */
+export function addUsesConsumer(action, type) {
+  if (!action) return;
+  const already = Object.values(action.consumers ?? {}).some((c) => c.type === type);
+  if (already) return;
+
+  (action.consumers ??= {})[id()] = usesConsumer(type);
+}
+
+/** The action a sheet fires first — where an item-level consumer belongs. */
+export function defaultAction(actions) {
+  const all = Object.values(actions ?? {});
+  return all.find((action) => action.default) ?? all[0] ?? null;
+}
+
 function rangeRecord(range) {
   if (!range) return {};
   const units = range.units;
@@ -429,7 +456,10 @@ export function activityToAction(activity, opts = {}) {
   if (consumer) action.consumers[id()] = consumer;
 
   const uses = convertUses(activity.uses);
-  if (uses && (uses.max || uses.per)) action.uses = uses;
+  if (uses && (uses.max || uses.per)) {
+    action.uses = uses;
+    addUsesConsumer(action, 'actionUses');
+  }
 
   return action;
 }
