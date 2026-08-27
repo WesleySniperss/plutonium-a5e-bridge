@@ -32,6 +32,7 @@ import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { installActorShim } from './actor-shim.js';
 import { publishFeats } from './feats.js';
 import { addAsiGrants } from './asi-grants.js';
+import { addCommonManeuvers, backfillCommonManeuvers } from './maneuvers.js';
 import { registerSettings } from './settings.js';
 import { ID, log, warn } from './util/log.js';
 import { translateDocument } from './translate/index.js';
@@ -115,6 +116,8 @@ Hooks.once('ready', () => {
     maneuverTemplates,
     publishFeats,
     addAsiGrants,
+    addCommonManeuvers,
+    backfillCommonManeuvers,
     repairUseConsumers,
     rebuildArchetypeGrants,
     rebuildClassGrants,

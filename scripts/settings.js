@@ -21,6 +21,15 @@ export function registerSettings() {
     default: true,
   });
 
+  game.settings.register(ID, 'commonManeuvers', {
+    name: 'Give imported creatures the common manoeuvres',
+    hint: 'Disarm, Grab On, Grapple, Knockdown, Overrun and Shove — what anyone can attempt in a5e. A statblock never lists them, so an import cannot learn of them; the system puts them on all 324 of its own converted monsters.',
+    scope: 'world',
+    config: true,
+    type: Boolean,
+    default: true,
+  });
+
   game.settings.register(ID, 'actorHandover', {
     name: 'Let a5e own class and subclass features on characters',
     hint: 'When a class or subclass is imported straight onto a character, remove the loose feature items Plutonium adds and let a5e grant them instead. This is what makes later level-ups add the next feature by themselves. Turn it off to keep Plutonium’s items and get no automation.',

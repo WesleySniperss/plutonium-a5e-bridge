@@ -1,6 +1,7 @@
 import { noteCreatedDocuments } from './grant-linker.js';
 import { publishImportedFeats } from './feats.js';
 import { assignSpellBooks } from './spellbook.js';
+import { addCommonManeuversTo } from './maneuvers.js';
 import { repairQuantityConsumers } from './translate/actions.js';
 import { pruneUpdate, translateDocument } from './translate/index.js';
 import { ID, debug, log, warn } from './util/log.js';
@@ -130,6 +131,10 @@ export function installPlutoniumBridge() {
 
     const created = await origCreate(Clazz, translated, opts);
     noteCreatedDocuments(created);
+
+    // A statblock never lists the manoeuvres anyone can attempt, so they have to
+    // be added rather than converted. Failing must not take the import down.
+    addCommonManeuversTo(created).catch((e) => debug(`Manoeuvres failed: ${e.message}`));
 
     // A feat is only offered from a compendium; an import leaves it in the
     // sidebar. Failing to publish must not take the import down with it.

@@ -2135,6 +2135,84 @@ test('updates: a sense arriving as an update is remapped, not dropped', () => {
 });
 
 
+// --- common manoeuvres -------------------------------------------------------
+
+test('manoeuvres: the universal six are picked out by rule, not by id', async () => {
+  // In a5e's maneuvers pack the ones anyone can attempt are exactly those of
+  // degree 0 with no tradition — 6 of 416, against 92 at first degree and up.
+  // Selecting by rule survives the pack being reissued with new ids.
+  const { addCommonManeuvers } = await import('../scripts/maneuvers.js');
+
+  const index = [
+    { _id: 'a', name: 'Grapple', type: 'maneuver', system: { degree: 0, tradition: '' } },
+    { _id: 'b', name: 'Shove', type: 'maneuver', system: { degree: 0, tradition: '' } },
+    { _id: 'c', name: 'Rally', type: 'maneuver', system: { degree: 1, tradition: 'adamant-mountain' } },
+    { _id: 'd', name: 'A Spell', type: 'spell', system: {} },
+  ];
+
+  const created = [];
+  const prevGame = globalThis.game;
+  globalThis.game = {
+    ...prevGame,
+    user: { isGM: true },
+    settings: { get: () => true },
+    packs: {
+      get: () => ({
+        getIndex: async () => index,
+        getDocument: async (id) => {
+          const e = index.find((x) => x._id === id);
+          return { name: e.name, toObject: () => ({ _id: e._id, name: e.name, type: 'maneuver' }) };
+        },
+      }),
+    },
+  };
+
+  try {
+    const actor = {
+      documentName: 'Actor',
+      type: 'npc',
+      name: 'Troll',
+      items: [],
+      async createEmbeddedDocuments(_type, payload) { created.push(...payload); },
+    };
+
+    const added = await addCommonManeuvers(actor);
+    assert.equal(added, 2, 'only the degree-0, tradition-less ones');
+    assert.deepEqual(created.map((c) => c.name).sort(), ['Grapple', 'Shove']);
+    assert.equal(created[0]._id, undefined, 'a fresh id, not the compendium one');
+    assert.equal(created[0].flags['plutonium-a5e'].commonManeuver, true);
+  } finally {
+    globalThis.game = prevGame;
+  }
+});
+
+test('manoeuvres: re-importing does not hand out a second Grapple', async () => {
+  const { addCommonManeuvers } = await import('../scripts/maneuvers.js');
+
+  const prevGame = globalThis.game;
+  globalThis.game = {
+    ...prevGame,
+    user: { isGM: true },
+    settings: { get: () => true },
+    packs: { get: () => null },
+  };
+
+  try {
+    const actor = {
+      documentName: 'Actor',
+      type: 'npc',
+      name: 'Troll',
+      items: [{ type: 'maneuver', name: 'Grapple' }],
+      async createEmbeddedDocuments() { throw new Error('must not create'); },
+    };
+
+    assert.equal(await addCommonManeuvers(actor), 0);
+  } finally {
+    globalThis.game = prevGame;
+  }
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

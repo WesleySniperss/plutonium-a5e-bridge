@@ -2,6 +2,7 @@ import { FLAG_SCOPE } from './translate/origins.js';
 import { adoptExistingFeatures, rebuildArchetypeGrants, rebuildClassGrants } from './grant-linker.js';
 import { repairUseConsumers } from './repair.js';
 import { addAsiGrants } from './asi-grants.js';
+import { backfillCommonManeuvers } from './maneuvers.js';
 import { ID, error, log } from './util/log.js';
 
 // Content imported by an earlier version of this bridge is missing things the
@@ -10,7 +11,7 @@ import { ID, error, log } from './util/log.js';
 // level-up. All of it can be recovered from what is already on the documents —
 // so it is, once, rather than being left as homework.
 
-const CURRENT = 3;
+const CURRENT = 4;
 
 /** Every class and archetype this bridge imported, wherever it ended up. */
 function importedOrigins() {
@@ -101,6 +102,7 @@ async function repairImportedContent() {
   const { consumers } = await repairUseConsumers();
   const references = await repairResourceReferences();
   const asi = await addAsiGrants();
+  const maneuvers = await backfillCommonManeuvers();
 
   let wired = 0;
   for (const owner of importedOrigins()) {
@@ -116,7 +118,7 @@ async function repairImportedContent() {
     }
   }
 
-  return { tagged, consumers, wired, references, asi };
+  return { tagged, consumers, wired, references, asi, maneuvers };
 }
 
 /**
@@ -136,16 +138,17 @@ export async function runMigrations() {
   if (done >= CURRENT) return;
 
   try {
-    const { tagged, consumers, wired, references, asi } = await repairImportedContent();
+    const { tagged, consumers, wired, references, asi, maneuvers } = await repairImportedContent();
     await game.settings.set(ID, 'migration', CURRENT);
 
-    if (tagged || consumers || wired || references || asi) {
+    if (tagged || consumers || wired || references || asi || maneuvers) {
       const parts = [];
       if (tagged) parts.push(`tagged ${tagged} feature(s)`);
       if (consumers) parts.push(`restored ${consumers} charge consumer(s)`);
       if (wired) parts.push(`wired ${wired} class/archetype grant set(s)`);
       if (references) parts.push(`repointed ${references} scaling formula set(s)`);
       if (asi) parts.push(`gave ${asi} class(es) their ability score increases`);
+      if (maneuvers) parts.push(`gave ${maneuvers} creature(s) the common manoeuvres`);
       ui.notifications.info(`Plutonium ⇄ A5E: repaired earlier imports — ${parts.join(', ')}.`);
       log(`Migration complete: ${parts.join(', ')}.`);
     } else {
