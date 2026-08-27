@@ -2019,6 +2019,71 @@ test('heritage: a class grant is untouched by that', () => {
 });
 
 
+// --- consumables -------------------------------------------------------------
+
+const potion = (uses) => translateDocument('Item', {
+  _id: 'potion0000000001',
+  name: 'Potion of Healing',
+  type: 'consumable',
+  system: {
+    description: { value: '<p>…</p>' },
+    quantity: 1,
+    uses,
+    activities: {
+      a: {
+        _id: 'a',
+        type: 'heal',
+        healing: { number: 2, denomination: 4, bonus: '2', types: ['healing'], custom: { enabled: false } },
+      },
+    },
+  },
+});
+
+test('consumable: drinking a potion uses it up', () => {
+  // dnd5e marks this with `uses.autoDestroy`; a5e spends it with a `quantity`
+  // consumer that deletes at zero, which is how 132 of its own consumables are
+  // built. Ticking a charge down instead leaves the potion in the bag for ever.
+  const out = potion({ spent: 0, max: '1', autoDestroy: true, recovery: [] });
+  const consumers = Object.values(first(out.system.actions).consumers);
+
+  const quantity = consumers.find((c) => c.type === 'quantity');
+  assert.ok(quantity, 'a quantity consumer is what removes it');
+  assert.equal(quantity.deleteOnZero, true);
+  assert.equal(quantity.quantity, 1);
+  assert.equal(quantity.itemId, 'potion0000000001', 'named so a5e can find it on the actor');
+});
+
+test('consumable: a wand with charges is not destroyed by using one', () => {
+  const wand = potion({ spent: 0, max: '7', autoDestroy: false, recovery: [{ period: 'day', type: 'recoverAll' }] });
+  const types = Object.values(first(wand.system.actions).consumers).map((c) => c.type);
+
+  assert.ok(types.includes('itemUses'));
+  assert.ok(!types.includes('quantity'), 'charges run out, the wand stays');
+});
+
+test('consumable: a stale consumer id is corrected once the item exists', async () => {
+  // a5e resolves the id against the actor, and an empty or stale one makes the
+  // consumer silently do nothing. Copying an item gives it a new id, so this is
+  // fixed after creation rather than trusted from the payload.
+  const { repairQuantityConsumers } = await import('../scripts/translate/actions.js');
+
+  const item = {
+    id: 'realid0000000002',
+    system: {
+      actions: { act: { consumers: { c1: { type: 'quantity', itemId: 'stale00000000001' } } } },
+    },
+  };
+
+  assert.deepEqual(
+    repairQuantityConsumers(item),
+    { 'system.actions.act.consumers.c1.itemId': 'realid0000000002' },
+  );
+
+  item.system.actions.act.consumers.c1.itemId = 'realid0000000002';
+  assert.equal(repairQuantityConsumers(item), null, 'nothing to do when already right');
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

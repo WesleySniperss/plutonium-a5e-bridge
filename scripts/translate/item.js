@@ -1,5 +1,6 @@
 import {
   activitiesToActions,
+  addQuantityConsumer,
   addUsesConsumer,
   convertUses,
   defaultAction,
@@ -194,6 +195,11 @@ function toObject(data, ctx) {
     // Without a consumer a5e shows the charges and never spends them.
     addUsesConsumer(defaultAction(out.actions), 'itemUses');
   }
+
+  // A potion is spent by being drunk, not by ticking a charge down: dnd5e says
+  // so with `autoDestroy`, and a5e with a `quantity` consumer that deletes the
+  // item at zero. Without it an imported potion is drinkable for ever.
+  if (system.uses?.autoDestroy) addQuantityConsumer(defaultAction(out.actions), data._id);
 
   if (kind.objectType === 'container') {
     out.capacity = {

@@ -576,3 +576,57 @@ export function activitiesToActions(activities, opts = {}) {
 
   return actions;
 }
+
+/**
+ * Make an item spend itself when used, the way a potion does.
+ *
+ * dnd5e says so with `uses.autoDestroy`; a5e says it with a `quantity` consumer,
+ * which is how 132 of the system's own consumables are built:
+ *
+ *   { type: "quantity", itemId: "<the item's own id>", quantity: 1,
+ *     deleteOnZero: true, default: true, label: "" }
+ *
+ * `itemId` is looked up against the actor — `items.get(itemId)` — and an empty
+ * one makes the consumer a no-op rather than an error, so it is safe to write
+ * before the document exists and correct afterwards.
+ */
+export function addQuantityConsumer(action, itemId = '') {
+  if (!action) return;
+  const already = Object.values(action.consumers ?? {}).some((c) => c.type === 'quantity');
+  if (already) return;
+
+  (action.consumers ??= {})[id()] = {
+    type: 'quantity',
+    itemId: String(itemId ?? ''),
+    quantity: 1,
+    deleteOnZero: true,
+    default: true,
+    label: '',
+  };
+}
+
+/**
+ * Point every `quantity` consumer at the document it actually belongs to.
+ *
+ * The id is only known once the item exists, and it changes again whenever the
+ * item is copied — dragging one from the sidebar onto a character makes a new
+ * document with a new id. So this is applied after creation rather than trusted
+ * from the payload.
+ *
+ * @returns {object|null} an update for the item, or null if it is already right
+ */
+export function repairQuantityConsumers(item) {
+  const actions = item?.system?.actions;
+  if (!actions) return null;
+
+  const update = {};
+  for (const [actionId, action] of Object.entries(actions)) {
+    for (const [consumerId, consumer] of Object.entries(action.consumers ?? {})) {
+      if (consumer?.type !== 'quantity') continue;
+      if (consumer.itemId === item.id) continue;
+      update[`system.actions.${actionId}.consumers.${consumerId}.itemId`] = item.id;
+    }
+  }
+
+  return Object.keys(update).length ? update : null;
+}

@@ -1,6 +1,7 @@
 import { noteCreatedDocuments } from './grant-linker.js';
 import { publishImportedFeats } from './feats.js';
 import { assignSpellBooks } from './spellbook.js';
+import { repairQuantityConsumers } from './translate/actions.js';
 import { pruneUpdate, translateDocument } from './translate/index.js';
 import { ID, debug, log, warn } from './util/log.js';
 
@@ -77,6 +78,26 @@ function restoreRawIdentity(created, originals) {
   });
 }
 
+
+// A `quantity` consumer names the item it spends by id, and a5e looks that id up
+// on the actor — an id that is only settled once the document exists, and that
+// changes again whenever the item is copied. An empty or stale one makes the
+// consumer do nothing at all rather than fail, so it is corrected here, after
+// creation, for whichever path the import took.
+async function pointQuantityConsumersAtTheirItems(created) {
+  for (const entry of [created].flat()) {
+    const doc = entry?.documentName ? entry : entry?.document;
+    if (doc?.documentName !== 'Item') continue;
+
+    try {
+      const update = repairQuantityConsumers(doc);
+      if (update) await doc.update(update);
+    } catch (e) {
+      debug(`Could not point a quantity consumer at "${doc.name}": ${e.message}`);
+    }
+  }
+}
+
 function enabled() {
   if (game.system.id !== 'a5e') return false;
   try {
@@ -131,6 +152,7 @@ export function installPlutoniumBridge() {
 
     const created = await origCreateEmbedded(doc, translated, withGrantGuard(doc, opts, translated));
     restoreRawIdentity(created, embedArray);
+    await pointQuantityConsumersAtTheirItems(created);
     noteCreatedDocuments(created);
     return created;
   };
