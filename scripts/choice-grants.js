@@ -1,6 +1,6 @@
 import { FLAG_SCOPE, ordinal } from './translate/origins.js';
 import { getOrCreatePack, publish } from './grant-linker.js';
-import { NAME, log } from './util/log.js';
+import { NAME, error, log } from './util/log.js';
 
 // Some features do not hand you anything — they let you pick. "You learn one
 // interdict boon of your choice", "choose a Fighting Style". 5etools keeps the
@@ -154,4 +154,59 @@ export async function clearChoiceGrants(ownerUuid) {
   await owner.update(update);
   log(`Removed ${present.length} choice(s) from "${owner.name}".`);
   return present.length;
+}
+
+// A class on an actor is a copy, made when it was dragged across. Editing the
+// class in the world sidebar changes nothing for a character who already has it
+// — so a choice has to be written to both, and then applied.
+//
+// a5e will apply it retroactively: `createInitialGrants` walks every grant whose
+// level is at or below the current class level and skips the ones already
+// recorded, so a grant added after the fact is picked up on the next call
+// without disturbing anything that was granted before.
+
+/** The world item and every actor's copy of it, for a class or archetype name. */
+export function ownersNamed(name) {
+  const wanted = String(name).toLowerCase().trim();
+  const isOwner = (i) => (i.type === 'class' || i.type === 'archetype')
+    && i.name.toLowerCase().trim() === wanted;
+
+  const out = game.items.filter(isOwner).map((item) => ({ item, actor: null }));
+  for (const actor of game.actors) {
+    for (const item of actor.items.filter(isOwner)) out.push({ item, actor });
+  }
+  return out;
+}
+
+/**
+ * Put the same choice on a class wherever it lives, and apply it to characters
+ * who already have that class.
+ *
+ * @param {string} name  the class or archetype, as it is named on the sheet
+ * @param {object} spec  as `addChoiceGrant`
+ * @example
+ *   api.addChoiceEverywhere('Illrigger', { level: 2, count: 1,
+ *                                          names: ['Telekinetic Seal'],
+ *                                          label: 'Interdict Boon' });
+ */
+export async function addChoiceEverywhere(name, spec = {}) {
+  const owners = ownersNamed(name);
+  if (!owners.length) throw new Error(`Nothing named "${name}" is a class or archetype here.`);
+
+  const done = [];
+  for (const { item, actor } of owners) {
+    await addChoiceGrant(item.uuid, spec);
+    done.push(actor ? `${actor.name}'s copy` : 'the world item');
+
+    if (!actor) continue;
+    try {
+      await actor.grants?.createInitialGrants?.(actor.items.get(item.id) ?? item);
+      log(`a5e applied the new choice to "${actor.name}".`);
+    } catch (e) {
+      error(`a5e could not apply the new choice to "${actor.name}".`, e);
+    }
+  }
+
+  log(`"${name}": choice added to ${done.join(', ')}.`);
+  return done.length;
 }

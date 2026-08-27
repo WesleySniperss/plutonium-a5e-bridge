@@ -12,7 +12,12 @@ import { diagnose, report, reportIfBroken } from './diagnose.js';
 import { repairUseConsumers } from './repair.js';
 import { runMigrations } from './migrate.js';
 import { applyClassManeuvers, maneuverTemplates, setClassManeuvers } from './mancer-classes.js';
-import { addChoiceGrant, clearChoiceGrants, listOptions } from './choice-grants.js';
+import {
+  addChoiceEverywhere,
+  addChoiceGrant,
+  clearChoiceGrants,
+  listOptions,
+} from './choice-grants.js';
 import {
   checkImporterApi,
   importOnto,
@@ -90,6 +95,7 @@ Hooks.once('ready', () => {
     verifyGrants,
     importOnto,
     addChoiceGrant,
+    addChoiceEverywhere,
     clearChoiceGrants,
     listOptions,
     setClassManeuvers,
