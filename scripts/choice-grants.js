@@ -52,14 +52,22 @@ export function listOptions(match = '') {
   return rows;
 }
 
-function chosenOptions(match, uuids) {
+function chosenOptions(match, uuids, names) {
   if (Array.isArray(uuids) && uuids.length) {
     const wanted = new Set(uuids);
     return importedOptions().filter(({ item }) => wanted.has(item.uuid));
   }
 
+  // Names are the practical way in: homebrew rarely fills in the group, so two
+  // sets of options arrive from one import looking identical, and the only thing
+  // that tells them apart is which list the book prints them under.
+  if (Array.isArray(names) && names.length) {
+    const wanted = new Set(names.map((n) => String(n).toLowerCase().trim()));
+    return importedOptions().filter(({ item }) => wanted.has(item.name.toLowerCase().trim()));
+  }
+
   const pattern = String(match ?? '').toLowerCase();
-  if (!pattern) throw new Error('Say which options: pass `match` or `uuids`.');
+  if (!pattern) throw new Error('Say which options: pass `names`, `match` or `uuids`.');
 
   return importedOptions().filter(({ item, meta }) => item.name.toLowerCase().includes(pattern)
     || String(meta.group).toLowerCase().includes(pattern));
@@ -73,6 +81,7 @@ function chosenOptions(match, uuids) {
  * @param {number} spec.level      the class level the choice happens at
  * @param {number} [spec.count=1]  how many to pick
  * @param {string} [spec.match]    name or group substring identifying the options
+ * @param {string[]} [spec.names]  or the option names, as the book lists them
  * @param {string[]} [spec.uuids]  or the options themselves, explicitly
  * @param {string} [spec.label]    what the choice is called on the sheet
  * @example
@@ -80,7 +89,7 @@ function chosenOptions(match, uuids) {
  *                                    label: 'Interdict Boon' });
  */
 export async function addChoiceGrant(ownerUuid, {
-  level, count = 1, match = '', uuids = null, label = '',
+  level, count = 1, match = '', uuids = null, names = null, label = '',
 } = {}) {
   const owner = await fromUuid(ownerUuid);
   if (!owner) throw new Error(`No such item: ${ownerUuid}`);
@@ -89,7 +98,7 @@ export async function addChoiceGrant(ownerUuid, {
   }
   if (!Number.isInteger(level) || level < 1 || level > 20) throw new Error('Pass a level between 1 and 20.');
 
-  const options = chosenOptions(match, uuids);
+  const options = chosenOptions(match, uuids, names);
   if (!options.length) throw new Error('None of the imported options matched. Try api.listOptions().');
 
   // Published so the grant points at something stable: a grant that references a
