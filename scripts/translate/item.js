@@ -30,6 +30,7 @@ import {
   subclassFeatureMeta,
   translateSubclass,
 } from './origins.js';
+import { resourcesFromClassTable } from '../class-table.js';
 import { debug } from '../util/log.js';
 
 // dnd5e keeps item properties as a Set; it arrives as an array or a Set depending
@@ -265,6 +266,13 @@ function toSpell(data, ctx) {
   };
 }
 
+// Two statements of the same progression: keep the advancement, which is data
+// Plutonium built from a real SRD match, and fill in only what it lacks.
+function mergeResources(fromAdvancement, fromTable) {
+  const seen = new Set(fromAdvancement.map((r) => r.slug));
+  return [...fromAdvancement, ...fromTable.filter((r) => !seen.has(r.slug))];
+}
+
 // --- features --------------------------------------------------------------
 
 // Creature traits and actions arrive as dnd5e `feat` items. a5e distinguishes a
@@ -355,8 +363,15 @@ function toOrigin(data, a5eType) {
       hp: { hitDiceSize: Number.isFinite(die) && die ? die : 6 },
       // Drives spell slots. Same shape as a subclass's, so the same mapper does.
       spellcasting: spellcastingOf(system),
-      // What makes a feature's damage and uses grow with level.
-      resources: resourcesFromAdvancement(system),
+      // What makes a feature's damage and uses grow with level. Plutonium only
+      // builds the dnd5e advancements these come from when it can match the
+      // class against the SRD, so homebrew arrives with none — and the class
+      // table, which is always imported, is then the only statement of the
+      // progression there is. Advancements win where both describe a column.
+      resources: mergeResources(
+        resourcesFromAdvancement(system),
+        resourcesFromClassTable(descriptionOf(system)),
+      ),
     };
   }
 

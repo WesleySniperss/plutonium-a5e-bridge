@@ -15,7 +15,9 @@ import { applyClassManeuvers, maneuverTemplates, setClassManeuvers } from './man
 import {
   addChoiceEverywhere,
   addChoiceGrant,
+  addChoicesFromTable,
   clearChoiceGrants,
+  listClassColumns,
   listOptions,
 } from './choice-grants.js';
 import {
@@ -101,6 +103,8 @@ Hooks.once('ready', () => {
     importOnto,
     addChoiceGrant,
     addChoiceEverywhere,
+    addChoicesFromTable,
+    listClassColumns,
     clearChoiceGrants,
     listOptions,
     setClassManeuvers,

@@ -537,6 +537,8 @@ export async function linkPending() {
     + owners.map((o) => `${o.name} [${o.type}]`).join(', '),
   );
 
+  await warnAboutNativeCollision(owners);
+
   // Owners that finish with nothing to hand out. Collected rather than guessed
   // at up front: an import that brings no features is perfectly fine when the
   // library already has them, and warning then is just noise.
@@ -595,6 +597,38 @@ export async function linkPending() {
       { permanent: true },
     );
   }
+}
+
+// a5e ships its own Fighter, Rogue, Paladin and the rest. An imported class of
+// the same name does not replace them — a5e keys a class by `system.slug`, and
+// two items with the same slug on one actor are simply two classes, which the
+// level maths then adds together.
+//
+// That is worth saying out loud at import time: the alternative is a character
+// who quietly reads as 8th level with two 4th-level halves.
+async function warnAboutNativeCollision(owners) {
+  if (!game.user.isGM) return;
+
+  const pack = game.packs?.get('a5e.a5e-classes');
+  if (!pack) return;
+
+  const index = await pack.getIndex();
+  const native = new Set([...index].map((e) => String(e.name).toLowerCase().trim()));
+
+  const clashing = owners
+    .filter((owner) => kindOf(owner) === KINDS.class)
+    .map((owner) => owner.name)
+    .filter((name) => native.has(String(name).toLowerCase().trim()));
+
+  if (!clashing.length) return;
+
+  const names = [...new Set(clashing)].join(', ');
+  warn(`${names} — a5e already has a class by this name; the two do not merge.`);
+  ui.notifications.warn(
+    `Plutonium ⇄ A5E: a5e already has its own ${names}. The imported one is a separate class, `
+    + 'so putting both on a character reads as a multiclass. Use one or the other.',
+    { permanent: true },
+  );
 }
 
 /**

@@ -1,5 +1,6 @@
 import { FLAG_SCOPE, ordinal } from './translate/origins.js';
 import { getOrCreatePack, publish } from './grant-linker.js';
+import { choiceCountsFromTable, listClassTableColumns } from './class-table.js';
 import { NAME, error, log } from './util/log.js';
 
 // Some features do not hand you anything — they let you pick. "You learn one
@@ -209,4 +210,55 @@ export async function addChoiceEverywhere(name, spec = {}) {
 
   log(`"${name}": choice added to ${done.join(', ')}.`);
   return done.length;
+}
+
+/**
+ * Build every level of a choice from the class's own table.
+ *
+ * The table already says how many picks the class has at each level — that is
+ * what its "Interdict Boons" or "Invocations Known" column is. All that has to
+ * be supplied is which imported options are being chosen between.
+ *
+ * @param {string} name    the class or archetype, as it is named on the sheet
+ * @param {string} column  the table column, matched loosely
+ * @param {object} spec    `names`, `match` or `uuids`, as `addChoiceGrant`
+ * @example
+ *   api.addChoicesFromTable('Illrigger', 'Interdict Boons', { names: [...] });
+ */
+export async function addChoicesFromTable(name, column, spec = {}) {
+  const owners = ownersNamed(name);
+  if (!owners.length) throw new Error(`Nothing named "${name}" is a class or archetype here.`);
+
+  const counts = choiceCountsFromTable(owners[0].item.system?.description ?? '', column);
+  if (!Object.keys(counts).length) {
+    throw new Error(
+      `"${name}" has no table column matching "${column}". `
+      + 'Try api.listClassColumns(name) to see what it does have.',
+    );
+  }
+
+  const levels = Object.keys(counts).map(Number).sort((a, b) => a - b);
+  for (const level of levels) {
+    await addChoiceEverywhere(name, {
+      ...spec, level, count: counts[level], label: spec.label || column,
+    });
+  }
+
+  log(`"${name}": ${column} set up at level(s) ${levels.join(', ')}.`);
+  return counts;
+}
+
+/** Show a class's table columns, so a choice can be pointed at one. */
+export function listClassColumns(name) {
+  const owners = ownersNamed(name);
+  if (!owners.length) throw new Error(`Nothing named "${name}" is a class or archetype here.`);
+
+  const rows = listClassTableColumns(owners[0].item.system?.description ?? '');
+
+  console.group(`${NAME} — ${name} table columns`);
+  if (rows.length) console.table(rows);
+  else console.log('No class table found in the description.');
+  console.groupEnd();
+
+  return rows;
 }

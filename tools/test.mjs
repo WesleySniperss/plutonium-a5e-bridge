@@ -22,6 +22,7 @@ const origins = await import('../scripts/translate/origins.js');
 const { buildFeatureGrants, parseClassFeatureHash, parseSubclassFeatureHash } = origins;
 const { assignSpellBooks, attachSpellBook, spellBookIdOf } = await import('../scripts/spellbook.js');
 const { KINDS, belongsTo, ownerMetaFor } = await import('../scripts/grant-linker.js');
+const { choiceCountsFromTable, parseClassTable, resourcesFromClassTable } = await import('../scripts/class-table.js');
 
 let passed = 0;
 const failures = [];
@@ -1588,6 +1589,121 @@ test('actor shim: the field Plutonium reads exists, and stays out of the data', 
     globalThis.CONFIG = prevConfig;
     globalThis.game = prevGame;
   }
+});
+
+
+// --- class tables ------------------------------------------------------------
+
+// Built exactly the way Plutonium builds it, from `getRenderedClassTableFromDereferenced`:
+// a colspan=3 spacer then group titles, a header row keyed by the level class,
+// one row per level, and an em dash where the value is zero.
+const illriggerTable = `<div class="ve-mb-2 ve-flex-col"><p>Fluff.</p><table class="ve-cls-tbl shadow-big ve-w-100 ve-mb-3">
+  <tbody>
+  <tr><th class="ve-tbl-border" colspan="15"></th></tr>
+  <tr>
+    <th colspan="3"></th>
+    <th class="ve-cls-tbl__col-group" colspan="2">Interdiction</th>
+    <th class="ve-cls-tbl__col-group" colspan="1">Spell Slots per Spell Level</th>
+  </tr>
+  <tr>
+    <th class="ve-cls-tbl__col-level">Level</th>
+    <th class="ve-cls-tbl__col-prof-bonus">Proficiency Bonus</th>
+    <th>Features</th>
+    <th class="ve-cls-tbl__col-generic-center"><div class="cls__squash_header">Interdict Boons</div></th>
+    <th class="ve-cls-tbl__col-generic-center"><div class="cls__squash_header">Baleful Damage</div></th>
+    <th class="ve-cls-tbl__col-generic-center"><div class="cls__squash_header">1st</div></th>
+  </tr>
+  <tr>
+    <td class="ve-cls-tbl__col-level">1st</td>
+    <td class="ve-cls-tbl__col-prof-bonus">+2</td>
+    <td>Baleful Interdict</td>
+    <td class="ve-cls-tbl__col-generic-center">&mdash;</td>
+    <td class="ve-cls-tbl__col-generic-center">1d8</td>
+    <td class="ve-cls-tbl__col-generic-center">&mdash;</td>
+  </tr>
+  <tr>
+    <td class="ve-cls-tbl__col-level">2nd</td>
+    <td class="ve-cls-tbl__col-prof-bonus">+2</td>
+    <td>Interdiction</td>
+    <td class="ve-cls-tbl__col-generic-center">1</td>
+    <td class="ve-cls-tbl__col-generic-center">1d8</td>
+    <td class="ve-cls-tbl__col-generic-center">2</td>
+  </tr>
+  <tr>
+    <td class="ve-cls-tbl__col-level">7th</td>
+    <td class="ve-cls-tbl__col-prof-bonus">+3</td>
+    <td>&mdash;</td>
+    <td class="ve-cls-tbl__col-generic-center">2</td>
+    <td class="ve-cls-tbl__col-generic-center">2d8</td>
+    <td class="ve-cls-tbl__col-generic-center">4</td>
+  </tr>
+  <tr><th class="ve-tbl-border" colspan="15"></th></tr>
+  </tbody>
+</table></div>`.replace(/&mdash;/g, '\u2014');
+
+test('class table: columns, groups and per-level values are read back', () => {
+  const columns = parseClassTable(illriggerTable);
+  assert.deepEqual(columns.map((c) => c.label), ['Interdict Boons', 'Baleful Damage', '1st']);
+
+  const boons = columns[0];
+  assert.equal(boons.group, 'Interdiction');
+  assert.deepEqual(boons.values, { 1: '0', 2: '1', 7: '2' }, 'an em dash means zero');
+
+  assert.equal(columns[2].group, 'Spell Slots per Spell Level');
+});
+
+test('class table: a homebrew class scales off its own table', () => {
+  // Plutonium builds ScaleValue advancements from `srdData` alone, so homebrew
+  // arrives with none — this is the only statement of the progression there is.
+  const resources = resourcesFromClassTable(illriggerTable);
+  const damage = resources.find((r) => r.slug === 'balefuldamage');
+
+  assert.ok(damage, 'the dice column becomes a resource');
+  assert.equal(damage.reference[1], '1d8');
+  assert.equal(damage.reference[7], '2d8');
+});
+
+test('class table: spell slots are left to a5e', () => {
+  // a5e derives slots from the class's casterType; importing them as resources
+  // would put a second, unrelated set of numbers on the sheet.
+  const slugs = resourcesFromClassTable(illriggerTable).map((r) => r.slug);
+  assert.ok(!slugs.includes('1st'));
+});
+
+test('class table: a column of feature names is not a resource', () => {
+  const slugs = resourcesFromClassTable(illriggerTable).map((r) => r.slug);
+  assert.deepEqual(slugs.sort(), ['balefuldamage', 'interdictboons']);
+});
+
+test('class table: choices are counted as what each level adds', () => {
+  // The table states the running total; an a5e grant hands out what it is worth
+  // on its own, so the difference between rungs is what gets granted.
+  const counts = choiceCountsFromTable(illriggerTable, 'Interdict Boons');
+  assert.deepEqual(counts, { 2: 1, 7: 1 }, 'one at 2nd, one more at 7th');
+});
+
+test('class table: a class with no table yields nothing, quietly', () => {
+  assert.deepEqual(parseClassTable('<p>Just prose.</p>'), []);
+  assert.deepEqual(resourcesFromClassTable(undefined), []);
+  assert.deepEqual(choiceCountsFromTable('', 'Interdict Boons'), {});
+});
+
+test('class: the table fills the gap where advancements are missing', () => {
+  const homebrew = {
+    name: 'Illrigger',
+    type: 'class',
+    system: {
+      description: { value: illriggerTable },
+      identifier: 'illrigger',
+      levels: 1,
+      hitDice: 'd10',
+      spellcasting: { progression: 'none', ability: '' },
+      advancement: [],
+    },
+  };
+
+  const slugs = translateDocument('Item', homebrew).system.resources.map((r) => r.slug);
+  assert.ok(slugs.includes('balefuldamage'), 'homebrew now scales');
 });
 
 

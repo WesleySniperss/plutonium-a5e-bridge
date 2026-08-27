@@ -264,27 +264,44 @@ boon of your choice"; "choose a Fighting Style". Two things follow from how
   features and the class-feature import brings 17, the missing one being exactly
   that.
 - **How many you get, at which level, is only in the class table** — rendered as
-  HTML, never as data. Nothing can read it.
+  HTML, never as data. But it is rendered into the class *description*, and
+  Plutonium imports it unconditionally ("Always import the note and the table"),
+  so it can be read back. The bridge does.
 
-So the options import, and the rest is stated once:
+So the options import, and the levels come from the table:
 
 ```js
 const api = game.modules.get('plutonium-a5e').api;
 
-api.importOnto(actor, 'optional');   // bring the options in
-api.listOptions('boon');             // see what arrived
+api.importOnto(actor, 'optional');       // bring the options in
+api.listOptions();                       // see what arrived
+api.listClassColumns('Illrigger');       // see what the table offers
 
-await api.addChoiceGrant('Item.abc123', {
-  level: 2,
-  count: 1,
-  match: 'boon',                     // or uuids: [...] to be exact
-  label: 'Interdict Boon',
+await api.addChoicesFromTable('Illrigger', 'Interdict Boons', {
+  names: ['Telekinetic Seal', 'Spellbreaker', '…'],
 });
 ```
 
-That becomes an a5e grant with its `options` filled in and a `total`, which is
-what makes a5e ask rather than hand everything over. `api.clearChoiceGrants(uuid)`
-takes them off again; rebuilding a class's features leaves them alone.
+The table states a running total — one boon at 2nd, two at 7th — while an a5e
+grant hands out what it is worth on its own, so the difference between rungs is
+what gets granted. That becomes one grant per level with its `options` filled in
+and a `total`, which is what makes a5e ask rather than hand everything over.
+
+For a class whose table says nothing, state it directly instead:
+
+```js
+await api.addChoiceEverywhere('Illrigger', {
+  level: 2, count: 1, names: ['…'], label: 'Interdict Boon',
+});
+```
+
+`addChoiceEverywhere` writes to the class in the sidebar *and* to the copy on
+every character who already has it — a class on an actor is a copy taken when it
+was dragged across, so editing the sidebar one alone changes nothing for an
+existing character. a5e then applies it retroactively: `createInitialGrants`
+walks every grant at or below the current class level and skips what it already
+recorded. `api.clearChoiceGrants(uuid)` takes them off again; rebuilding a
+class's features leaves them alone.
 
 ### Combat maneuvers for an imported class
 
@@ -322,13 +339,18 @@ dnd5e's engine hands them out as you level. a5e does the same thing through
 `system.grants`, which is what this bridge converts them into. That works for
 homebrew exactly as it works for the SRD.
 
-**Formula scaling is the part that needs SRD data.** Where dnd5e does use a
+**Formula scaling comes from the SRD, or from the table.** Where dnd5e uses a
 formula — sneak attack dice, ki points, rage uses — it keeps the table in a
 `ScaleValue` advancement, and a5e keeps the same table in
-`system.resources[].reference`. Those convert cleanly. But Plutonium only *has*
-`ScaleValue` for classes it can line up with the dnd5e SRD, so a homebrew class
-gets none — in dnd5e either. Its features still arrive on schedule and state
-their own numbers; there is just no `@scale` value behind them.
+`system.resources[].reference`. Those convert cleanly. But Plutonium builds
+`ScaleValue` from `srdData` alone, so a class it cannot line up with the dnd5e
+SRD arrives with none — in dnd5e either.
+
+For those, the bridge reads the class table out of the description instead: every
+column whose rungs are all numbers or dice becomes an a5e resource, keyed by
+level the same way a `ScaleValue` would be. Spell-slot columns are skipped, since
+a5e derives those from the class's caster progression. Where both sources
+describe the same column, the advancement wins.
 
 **A class brings its features and its hit die — not the rest of its mechanics.**
 "Here is a feature at level N" maps cleanly, and that is now converted for
