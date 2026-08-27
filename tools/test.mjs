@@ -1958,6 +1958,67 @@ test('spell: an at-will spell gains no phantom limit', () => {
 });
 
 
+// --- heritages ---------------------------------------------------------------
+
+test('heritage: a race trait keeps the parentage the linker needs', () => {
+  // Plutonium builds the hash as
+  //   encodeArrayForHash(name, raceName, raceSource, source)
+  // so the tail is three fields, and `raceName` says which heritage owns it.
+  const trait = translateDocument('Item', {
+    name: 'Darkvision',
+    type: 'feat',
+    system: { description: { value: '<p>…</p>' }, type: { value: 'race' }, activities: {} },
+    flags: { plutonium: { page: 'raceFeature', hash: 'Darkvision_Elf_PHB_PHB' } },
+  });
+
+  const meta = trait.flags['plutonium-a5e'].raceFeature;
+  assert.equal(meta.raceName, 'Elf');
+  assert.equal(meta.level, 1, 'a heritage has no levels of its own');
+  assert.equal(meta.className, 'Elf', 'matched by the same field a class feature uses');
+  assert.equal(trait.system.featureType, 'heritage');
+});
+
+test('heritage: an imported race is recognised as a grant owner', () => {
+  const elf = translateDocument('Item', {
+    name: 'Elf',
+    type: 'race',
+    system: { description: { value: '<p>…</p>' }, identifier: 'elf', advancement: [] },
+    flags: { plutonium: { page: 'race', hash: 'elf_phb' } },
+  });
+
+  assert.equal(elf.type, 'heritage');
+  assert.equal(elf.flags['plutonium-a5e'].heritage.identifier, 'elf');
+  assert.equal(elf.flags['plutonium-a5e'].grantsLinked, false);
+});
+
+test('heritage: its grant is filed against character level, not class level', () => {
+  // a5e's own heritages do it this way — checked across the system's 55: every
+  // feature grant is levelType "character", and the label carries no level,
+  // because everything a heritage gives arrives at first.
+  const grants = buildFeatureGrants(
+    [{ level: 1, uuid: 'Item.a', name: 'Darkvision', img: '' }],
+    'Traits',
+    'character',
+  );
+
+  const [grant] = Object.values(grants);
+  assert.equal(grant.levelType, 'character');
+  assert.equal(grant.label, 'Traits');
+  assert.equal(grant.features.base.length, 1);
+});
+
+test('heritage: a class grant is untouched by that', () => {
+  const grants = buildFeatureGrants(
+    [{ level: 3, uuid: 'Item.b', name: 'Interdiction', img: '' }],
+    'Class Features',
+  );
+
+  const [grant] = Object.values(grants);
+  assert.equal(grant.levelType, 'class');
+  assert.equal(grant.label, '3rd Level Class Features');
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

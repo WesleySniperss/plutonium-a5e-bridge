@@ -308,7 +308,7 @@ export function spellcastingOf(system) {
  * @param {string} label  what the grant is called on the sheet
  * @returns {object} a `system.grants` record
  */
-export function buildFeatureGrants(features, label = 'Archetype Features') {
+export function buildFeatureGrants(features, label = 'Archetype Features', levelType = 'class') {
   const byLevel = new Map();
 
   features.forEach(({ level, uuid, name, img }) => {
@@ -325,9 +325,11 @@ export function buildFeatureGrants(features, label = 'Archetype Features') {
       _id,
       grantType: 'feature',
       level,
-      levelType: 'class',
+      levelType,
       optional: false,
-      label: `${ordinal(level)} Level ${label}`,
+      // A heritage has no levels of its own: everything arrives at first, so
+      // naming a level would read as if some of it came later.
+      label: levelType === 'character' ? label : `${ordinal(level)} Level ${label}`,
       img: '',
       features: {
         base: byLevel.get(level),
@@ -349,4 +351,59 @@ export function ordinal(n) {
     case 3: return `${n}rd`;
     default: return `${n}th`;
   }
+}
+
+// A race's traits are imported the same way a class's features are — separate
+// documents, tagged with their own page and hash. Plutonium builds it as
+//
+//   URL_TO_HASH_BUILDER["raceFeature"] =
+//     (it) => UrlUtil.encodeArrayForHash(it.name, it.raceName, it.raceSource, it.source);
+//
+// so the tail is three fields after the name, and `raceName` is what says which
+// heritage it belongs to. a5e's own heritages hand their traits out through
+// `system.grants`, exactly as its classes do, so the same wiring serves.
+const RACE_FEATURE_HASH_TAIL = ['raceName', 'raceSource', 'source'];
+
+export function parseRaceFeatureHash(hash) {
+  return parseHash(hash, RACE_FEATURE_HASH_TAIL);
+}
+
+/** Is this dnd5e `feat` item one of a race's traits? */
+export function isRaceFeatureItem(data) {
+  return data?.type === 'feat' && plutoniumFlags(data)?.page === 'raceFeature';
+}
+
+/**
+ * Everything needed to file a racial trait under the right heritage.
+ *
+ * A heritage has no levels — every trait arrives at 1st — so unlike a class
+ * feature there is no level in the hash to read, and one grant covers them all.
+ */
+export function raceFeatureMeta(data) {
+  const flags = plutoniumFlags(data);
+  const fromHash = parseRaceFeatureHash(flags?.hash);
+  if (fromHash) return { ...fromHash, className: fromHash.raceName, level: 1 };
+
+  const raceName = String(data?.system?.type?.subtype || data?.system?.requirements || '').trim();
+  if (!raceName) return null;
+  return {
+    name: String(data?.name ?? ''),
+    className: raceName,
+    raceName,
+    raceSource: '',
+    level: 1,
+    source: flags?.source ?? '',
+  };
+}
+
+/** What the linker needs to recognise an imported heritage again. */
+export function heritageMeta(data) {
+  const identifier = String(data?.system?.identifier || data?.name || '');
+  return {
+    classIdentifier: identifier,
+    classSlug: identifier,
+    identifier,
+    hash: plutoniumFlags(data)?.hash ?? '',
+    source: plutoniumFlags(data)?.source ?? '',
+  };
 }

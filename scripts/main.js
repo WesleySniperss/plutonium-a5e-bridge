@@ -5,6 +5,7 @@ import {
   linkPending,
   rebuildArchetypeGrants,
   rebuildClassGrants,
+  rebuildHeritageGrants,
   scheduleLink,
 } from './grant-linker.js';
 import { installPlutoniumBridge } from './bridge.js';
@@ -117,6 +118,7 @@ Hooks.once('ready', () => {
     repairUseConsumers,
     rebuildArchetypeGrants,
     rebuildClassGrants,
+    rebuildHeritageGrants,
     linkPending,
   };
 

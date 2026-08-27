@@ -21,7 +21,10 @@ import {
   FLAG_SCOPE,
   classFeatureMeta,
   classMeta,
+  heritageMeta,
   isClassFeatureItem,
+  isRaceFeatureItem,
+  raceFeatureMeta,
   isOptionalFeatureItem,
   optionalFeatureMeta,
   isSubclassFeatureItem,
@@ -436,6 +439,15 @@ export function translateItem(data, ctx = {}) {
       system.featureType = 'class';
       extraFlags = { ...extraFlags, subclassFeature: meta };
     }
+  } else if (a5eType === 'feature' && isRaceFeatureItem(data)) {
+    // A race's traits are imported as their own documents, exactly as a class's
+    // features are, and a5e's own heritages hand theirs out through
+    // `system.grants` the same way. So they are tagged for the linker too.
+    const meta = raceFeatureMeta(data);
+    if (meta) {
+      system.featureType = 'heritage';
+      extraFlags = { ...extraFlags, raceFeature: meta };
+    }
   } else if (a5eType === 'feature' && isClassFeatureItem(data)) {
     const meta = classFeatureMeta(data);
     if (meta) {
@@ -448,6 +460,8 @@ export function translateItem(data, ctx = {}) {
     extraFlags = { ...extraFlags, optionalFeature: optionalFeatureMeta(data) };
   } else if (a5eType === 'class') {
     extraFlags = { ...extraFlags, class: classMeta(data), grantsLinked: false };
+  } else if (a5eType === 'heritage') {
+    extraFlags = { ...extraFlags, heritage: heritageMeta(data), grantsLinked: false };
   }
 
   const out = {

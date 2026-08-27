@@ -2,6 +2,7 @@ import {
   FLAG_SCOPE,
   buildFeatureGrants,
   parseClassFeatureHash,
+  parseRaceFeatureHash,
   parseSubclassFeatureHash,
 } from './translate/origins.js';
 import { classSlug } from './translate/maps.js';
@@ -32,6 +33,19 @@ export const KINDS = {
     rebuildFn: 'rebuildArchetypeGrants',
     featurePack: ['plutonium-a5e-archetype-features', 'Plutonium ⇄ A5E: Archetype Features'],
     ownerPack: ['plutonium-a5e-archetypes', 'Plutonium ⇄ A5E: Archetypes'],
+  },
+  heritage: {
+    itemType: 'heritage',
+    ownerFlag: 'heritage',
+    featureFlag: 'raceFeature',
+    matchIdentifier: false,
+    grantLabel: 'Traits',
+    noun: 'Heritage',
+    rebuildFn: 'rebuildHeritageGrants',
+    // A heritage is not levelled — a5e files its traits against character level 1.
+    levelType: 'character',
+    featurePack: ['plutonium-a5e-heritage-features', 'Plutonium ⇄ A5E: Heritage Traits'],
+    ownerPack: ['plutonium-a5e-heritages', 'Plutonium ⇄ A5E: Heritages'],
   },
   class: {
     itemType: 'class',
@@ -89,7 +103,7 @@ export function ownerMetaFor(owner, kind) {
 
   const ownSlug = owner.system?.slug || slug(owner.name);
 
-  if (kind === KINDS.class) {
+  if (kind === KINDS.class || kind === KINDS.heritage) {
     return { classIdentifier: ownSlug, classSlug: ownSlug, identifier: ownSlug, derived: true };
   }
 
@@ -110,7 +124,8 @@ export function noteCreatedDocuments(docs) {
     if (!flags) continue;
 
     if (kindOf(doc)) pending.owners.push(doc);
-    else if (doc.type === 'feature' && (flags.subclassFeature || flags.classFeature)) {
+    else if (doc.type === 'feature'
+      && (flags.subclassFeature || flags.classFeature || flags.raceFeature)) {
       pending.features.push(doc);
     }
   }
@@ -337,7 +352,7 @@ async function linkOne(owner, kind, features) {
     return false;
   }
 
-  const grants = buildFeatureGrants(entries, kind.grantLabel);
+  const grants = buildFeatureGrants(entries, kind.grantLabel, kind.levelType ?? 'class');
 
   // `system.grants` is an object field, so an update merges into it key by key.
   // That is what allows imported features to be added to a class a5e ships
@@ -768,6 +783,7 @@ export async function adoptExistingFeatures() {
   const PARSE = {
     classFeature: parseClassFeatureHash,
     subclassFeature: parseSubclassFeatureHash,
+    raceFeature: parseRaceFeatureHash,
   };
 
   const documents = [...game.items];
@@ -805,6 +821,10 @@ export async function adoptExistingFeatures() {
 
 export function rebuildArchetypeGrants(uuid) {
   return rebuild(uuid, KINDS.archetype);
+}
+
+export function rebuildHeritageGrants(uuid) {
+  return rebuild(uuid, KINDS.heritage);
 }
 
 export function rebuildClassGrants(uuid) {
