@@ -1377,6 +1377,70 @@ test('every named import is actually exported', () => {
 
 // --- report -----------------------------------------------------------------
 
+
+test('spell: every field a5e declares is filled in', () => {
+  // Read off `A5ESpellData`'s own schema in the system source. A spell that is
+  // missing one of these is stored, and then quietly behaves as the default —
+  // which is how the spell book and the preparation state went wrong before.
+  const REQUIRED = [
+    'classes', 'components', 'concentration', 'disciplines', 'level',
+    'materials', 'materialsConsumed', 'prepared', 'prerequisite', 'rare',
+    'ritual', 'schools', 'spellBook',
+    // from A5EBaseItemData
+    'description', 'secretDescription', 'source', 'favorite', 'macro',
+    // from actions()
+    'actions',
+  ];
+
+  const { system } = translateDocument('Item', fireball);
+  const missing = REQUIRED.filter((key) => !(key in system));
+  assert.deepEqual(missing, [], `spell is missing: ${missing.join(', ')}`);
+
+  assert.deepEqual(Object.keys(system.components).sort(), ['material', 'seen', 'vocalized']);
+  assert.deepEqual(Object.keys(system.schools).sort(), ['primary', 'secondary']);
+});
+
+test('spell: the school is a key a5e knows, never a dnd5e abbreviation', () => {
+  // a5e looks the school up in `CONFIG.A5E.spellSchools.primary`, whose keys are
+  // spelled out in full. Storing "evo" shows the raw string on the sheet.
+  const KNOWN = new Set([
+    'abjuration', 'conjuration', 'divination', 'enchantment',
+    'evocation', 'illusion', 'necromancy', 'transmutation',
+  ]);
+
+  for (const [abbr, expected] of Object.entries({
+    abj: 'abjuration', con: 'conjuration', div: 'divination', enc: 'enchantment',
+    evo: 'evocation', ill: 'illusion', nec: 'necromancy', trs: 'transmutation',
+  })) {
+    const out = translateDocument('Item', {
+      ...fireball, system: { ...fireball.system, school: abbr },
+    });
+    assert.equal(out.system.schools.primary, expected);
+    assert.ok(KNOWN.has(out.system.schools.primary));
+  }
+
+  // An unknown school is left blank rather than passed through as junk.
+  const odd = translateDocument('Item', {
+    ...fireball, system: { ...fireball.system, school: 'xyz' },
+  });
+  assert.equal(odd.system.schools.primary, '');
+});
+
+test('spell: a cantrip is level 0 and spends nothing', () => {
+  const cantrip = translateDocument('Item', {
+    ...fireball,
+    name: 'Fire Bolt',
+    system: { ...fireball.system, level: 0 },
+  });
+  assert.equal(cantrip.system.level, 0);
+
+  const action = first(cantrip.system.actions);
+  const consumers = Object.values(action.consumers ?? {});
+  assert.equal(consumers.filter((c) => c.type === 'spell').length, 0,
+    'a cantrip must not consume a slot');
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {
