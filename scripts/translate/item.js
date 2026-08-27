@@ -227,7 +227,7 @@ function toSpell(data, ctx) {
   const system = data.system ?? {};
   const flags = props(system);
 
-  return {
+  const out = {
     description: descriptionOf(system),
     secretDescription: '',
     source: sourceOf(system),
@@ -267,6 +267,19 @@ function toSpell(data, ctx) {
       ...ctx,
     }),
   };
+
+  // A monster's innate spell is "1/day", and dnd5e says so in `system.uses`.
+  // Only objects and features were reading that, so an imported innate spell had
+  // no limit at all — castable forever. a5e's own conversion of the same
+  // monsters fills this in: its Unicorn carries Calm Emotions with
+  // `uses: { value: 1, max: "1" }` and an `itemUses` consumer beside the slot.
+  const uses = convertUses(system.uses);
+  if (uses && String(uses.max) !== "0") {
+    out.uses = uses;
+    addUsesConsumer(defaultAction(out.actions), "itemUses");
+  }
+
+  return out;
 }
 
 // Two statements of the same progression: keep the advancement, which is data

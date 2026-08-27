@@ -1882,6 +1882,82 @@ test('spell: an area effect can actually be placed on the canvas', () => {
 });
 
 
+// --- spellcasting monsters ---------------------------------------------------
+
+const casterNpc = (spells) => translateDocument('Actor', {
+  name: 'Archmage',
+  type: 'npc',
+  system: {
+    abilities: {},
+    attributes: { ac: { flat: 12 }, hp: { value: 99, max: 99 }, movement: {}, senses: {} },
+    details: { cr: 12 },
+    traits: { size: 'med' },
+    ...(spells ? { spells } : {}),
+  },
+}).system;
+
+test('monster: spell slots carry across, matching a5e\'s own Archmage', () => {
+  // dnd5e keeps them as system.spells.spellN.max; a5e as spellResources.slots.
+  // Without them every spell is prepared and none can be cast, because the slot
+  // consumer has nothing to spend.
+  const out = casterNpc({
+    spell1: { value: 4, max: 4 }, spell2: { value: 3, max: 3 }, spell3: { value: 3, max: 3 },
+    spell4: { value: 3, max: 3 }, spell5: { value: 3, max: 3 }, spell6: { value: 1, max: 1 },
+    spell7: { value: 1, max: 1 }, spell8: { value: 1, max: 1 }, spell9: { value: 1, max: 1 },
+  });
+
+  assert.deepEqual(out.spellResources.slots[1], { current: 4, max: 4 });
+  assert.deepEqual(out.spellResources.slots[5], { current: 3, max: 3 });
+  assert.deepEqual(out.spellResources.slots[9], { current: 1, max: 1 });
+});
+
+test('monster: something that never casts gets no slot tracker', () => {
+  assert.equal(casterNpc(null).spellResources, undefined);
+  // All-zero slots are not slots either.
+  assert.equal(casterNpc({ spell1: { value: 0, max: 0 } }).spellResources, undefined);
+});
+
+test('monster: pact slots land on the level they are cast at', () => {
+  const out = casterNpc({ pact: { value: 2, max: 2, level: 3 } });
+  assert.deepEqual(out.spellResources.slots[3], { current: 2, max: 2 });
+});
+
+test('spell: an innate spell keeps its per-day limit', () => {
+  // a5e's own conversion of the same monsters does this — its Unicorn carries
+  // Calm Emotions with uses {value:1, max:"1"} and an itemUses consumer beside
+  // the slot one. Ours had no limit at all, so it was castable forever.
+  const innate = translateDocument('Item', {
+    name: 'Calm Emotions',
+    type: 'spell',
+    system: {
+      description: { value: '<p>…</p>' },
+      level: 2,
+      school: 'enc',
+      properties: ['vocal'],
+      method: 'innate',
+      prepared: 1,
+      uses: { spent: 0, max: '1', recovery: [{ period: 'day', type: 'recoverAll' }] },
+      activities: { a: { _id: 'a', type: 'save', activation: { type: 'action', value: 1 }, save: { ability: ['cha'], dc: { calculation: 'spellcasting' } }, damage: { parts: [] } } },
+    },
+  });
+
+  assert.equal(innate.system.uses.max, '1');
+  assert.equal(innate.system.uses.per, 'day');
+  assert.equal(innate.system.prepared, 2, 'innate means always available');
+
+  const types = Object.values(first(innate.system.actions).consumers).map((c) => c.type);
+  assert.ok(types.includes('itemUses'), 'and something actually spends the use');
+});
+
+test('spell: an at-will spell gains no phantom limit', () => {
+  const atWill = translateDocument('Item', {
+    ...fireball,
+    system: { ...fireball.system, method: 'atwill' },
+  });
+  assert.equal(atWill.system.uses, undefined);
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

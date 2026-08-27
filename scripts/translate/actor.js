@@ -148,6 +148,44 @@ function resourcesOf(system) {
  * Embedded items are left alone here — Plutonium creates them separately through
  * `pCreateEmbeddedDocuments`, and the bridge translates them there.
  */
+// A spellcasting monster keeps its slots in dnd5e as `system.spells.spell1.max`
+// and so on; a5e keeps the same numbers in `spellResources.slots`, keyed 1-9
+// with a current and a max. Without them an imported archmage has every spell
+// prepared and no way to cast one, because the slot consumer has nothing to
+// spend. a5e's own conversion of the same monsters fills this in — its Archmage
+// carries 4/3/3/3/3/1/1/1/1.
+//
+// Warlock-style pact slots are folded into the level they are cast at, which is
+// the closest a5e has for a monster with no pact progression of its own.
+function spellSlotsOf(system) {
+  const spells = system?.spells;
+  if (!spells) return null;
+
+  const slots = {};
+  let any = false;
+
+  for (let level = 1; level <= 9; level += 1) {
+    const entry = spells[`spell${level}`] ?? {};
+    const max = Number(entry.max) || 0;
+    const current = Number.isFinite(Number(entry.value)) ? Number(entry.value) : max;
+    slots[level] = { current: Math.max(0, current), max };
+    if (max) any = true;
+  }
+
+  const pact = spells.pact ?? {};
+  const pactLevel = Number(pact.level) || 0;
+  const pactMax = Number(pact.max) || 0;
+  if (pactLevel >= 1 && pactLevel <= 9 && pactMax) {
+    slots[pactLevel] = {
+      current: slots[pactLevel].current + (Number(pact.value) || pactMax),
+      max: slots[pactLevel].max + pactMax,
+    };
+    any = true;
+  }
+
+  return any ? slots : null;
+}
+
 export function translateActor(data) {
   const a5eType = ACTOR_TYPE[data.type];
   if (!a5eType) {
@@ -233,6 +271,12 @@ export function translateActor(data) {
       resources: resourcesOf(system),
     },
   };
+
+  // Only written when the creature actually has slots: the field is a full 1-9
+  // record, and stamping an empty one on every goblin would put a spell-slot
+  // tracker on the sheet of something that has never cast anything.
+  const slots = spellSlotsOf(system);
+  if (slots) out.system.spellResources = { slots };
 
   out.flags = {
     ...(data.flags ?? {}),
