@@ -1441,6 +1441,78 @@ test('spell: a cantrip is level 0 and spends nothing', () => {
 });
 
 
+// --- bridge ------------------------------------------------------------------
+
+test("bridge: Plutonium can still find the item it asked us to create", async () => {
+  // Plutonium looks its own creation up by object identity:
+  //
+  //   getImportedEmbed (importedEmbeds, itemData) {
+  //     const importedEmbed = importedEmbeds.find(it => it.raw === itemData);
+  //
+  // and the class importer assigns `classItem` from the result. We hand the
+  // creator a translated copy, so without the fix that lookup misses, the user
+  // sees "Failed to link embedded entity for active effects!", and every step
+  // that needed `classItem` quietly does nothing.
+  class ImportedEmbeddedDocument {
+    constructor({ raw, document }) { this.raw = raw; this.document = document; }
+  }
+
+  const UtilDocuments = {
+    ImportedEmbeddedDocument,
+    async pCreateDocument(Clazz, docData) { return docData; },
+    async pCreateEmbeddedDocuments(doc, embedArray) {
+      // Exactly what Plutonium does: wrap by index off the array it was given.
+      return embedArray.map((raw, i) => new ImportedEmbeddedDocument({
+        raw, document: { id: `doc${i}`, name: raw.name },
+      }));
+    },
+    async pUpdateDocument(doc, u) { return u; },
+    async pUpdateEmbeddedDocuments(doc, u) { return u; },
+  };
+
+  const prevGame = globalThis.game;
+  globalThis.game = {
+    system: { id: "a5e" },
+    settings: { get: (_m, key) => (key === "enabled" ? true : false) },
+    modules: { get: () => ({ api: { salphar: { UtilDocuments } } }) },
+  };
+
+  try {
+    const { installPlutoniumBridge } = await import("../scripts/bridge.js");
+    assert.equal(installPlutoniumBridge(), true, "bridge should install");
+
+    const actor = { documentName: "Actor", type: "character", name: "Serthalqin", system: { spellBooks: { aaa: {} } } };
+    const classItemToCreate = {
+      name: "Illrigger",
+      type: "class",
+      system: {
+        description: { value: "<p>An Illrigger…</p>" },
+        identifier: "illrigger",
+        levels: 1,
+        hitDice: "d10",
+        spellcasting: { progression: "none", ability: "" },
+        advancement: [],
+      },
+      flags: { plutonium: { page: "class", hash: "illrigger_illr", source: "IllR" } },
+    };
+
+    const embeds = await UtilDocuments.pCreateEmbeddedDocuments(
+      actor, [classItemToCreate], { ClsEmbed: { metadata: { name: "Item" } } },
+    );
+
+    // The lookup Plutonium performs, verbatim.
+    const found = embeds.find((it) => it.raw === classItemToCreate);
+    assert.ok(found, "Plutonium must find the embed it asked us to create");
+    assert.equal(found.document.name, "Illrigger");
+
+    // The document really was created from the translated data, not the raw.
+    assert.equal(embeds[0].document.name, classItemToCreate.name);
+  } finally {
+    globalThis.game = prevGame;
+  }
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

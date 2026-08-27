@@ -46,6 +46,36 @@ function withGrantGuard(doc, opts, items) {
   };
 }
 
+// Plutonium hands back a wrapper per created item, and finds the one it wants by
+// object identity against the data it passed in:
+//
+//   static getImportedEmbed (importedEmbeds, itemData) {
+//     const importedEmbed = importedEmbeds.find(it => it.raw === itemData);
+//     if (!importedEmbed) { ui.notifications.warn("Failed to link embedded entity...
+//
+// We hand the creator a *translated* copy, so that identity no longer holds and
+// the lookup fails — which is not cosmetic: the class importer assigns
+//
+//   dataBuilderOpts.classItem = DataConverter.getImportedEmbed(...)?.document;
+//
+// and everything downstream of a missing `classItem` silently does nothing.
+//
+// Plutonium builds the wrappers by index off the array it was given, and asserts
+// the two lengths match, so index is a sound way back to the original.
+function restoreRawIdentity(created, originals) {
+  if (!Array.isArray(created) || created.length !== originals.length) return;
+
+  created.forEach((wrapper, i) => {
+    if (!wrapper || wrapper.raw === originals[i]) return;
+    try {
+      wrapper.raw = originals[i];
+    } catch {
+      // A frozen or accessor-only wrapper: leave it be rather than throw mid-import.
+      debug("Could not restore raw identity on an imported embed.");
+    }
+  });
+}
+
 function enabled() {
   if (game.system.id !== 'a5e') return false;
   try {
@@ -95,6 +125,7 @@ export function installPlutoniumBridge() {
     await assignSpellBooks(doc, translated);
 
     const created = await origCreateEmbedded(doc, translated, withGrantGuard(doc, opts, translated));
+    restoreRawIdentity(created, embedArray);
     noteCreatedDocuments(created);
     return created;
   };
