@@ -493,9 +493,15 @@ test('formulas: proficiency is already spelled the same', () => {
 });
 
 test('formulas: a scale value points at the class resource slug', () => {
-  // dnd5e reaches it through the class; a5e puts each resource in under its slug.
-  assert.equal(translateFormula('@scale.rogue.sneak-attack'), '@sneakattack');
-  assert.equal(translateFormula('@scale.illriggerrevised.blood_price + 2'), '@bloodprice + 2');
+  // dnd5e reaches it through the class. a5e gathers every class's resources onto
+  // the actor as `classResources`, and nothing sits at the top level under the
+  // slug alone — `@sneakattack` evaluates to zero without complaint. a5e's own
+  // packs write `@classResources.<slug>`, which is the reference to produce.
+  assert.equal(translateFormula('@scale.rogue.sneak-attack'), '@classResources.sneakattack');
+  assert.equal(
+    translateFormula('@scale.illriggerrevised.blood_price + 2'),
+    '@classResources.bloodprice + 2',
+  );
 });
 
 test('formulas: anything else is left alone', () => {
@@ -1704,6 +1710,44 @@ test('class: the table fills the gap where advancements are missing', () => {
 
   const slugs = translateDocument('Item', homebrew).system.resources.map((r) => r.slug);
   assert.ok(slugs.includes('balefuldamage'), 'homebrew now scales');
+});
+
+
+test('class table: a level the table skips keeps the last value, not zero', () => {
+  // a5e reads one rung and takes a miss as nothing:
+  //   let i = n.reference?.[e] || "", … a ||= 0;
+  // so a gap would read as zero rather than as "unchanged".
+  const resources = resourcesFromClassTable(illriggerTable);
+  const damage = resources.find((r) => r.slug === 'balefuldamage');
+
+  assert.equal(damage.reference[7], '2d8');
+  assert.equal(damage.reference[8], '2d8', 'carried past the last stated level');
+  assert.equal(damage.reference[20], '2d8');
+  assert.equal(damage.reference[1], '1d8');
+});
+
+test('class table: two columns that slug alike do not displace each other', () => {
+  // a5e keys resources by slug, so the second would silently win in roll data.
+  const table = illriggerTable.replace('Baleful Damage', 'Interdict-Boons');
+  const slugs = resourcesFromClassTable(table).map((r) => r.slug);
+
+  assert.equal(new Set(slugs).size, slugs.length, 'no duplicate slugs');
+});
+
+
+test('feat: an imported feat is shaped the way a5e ships its own', () => {
+  // Checked against the system's own `feats` pack, whose 75 documents are
+  // `feature` with `system.featureType: "feat"` — there is no item type "feat"
+  // in a5e at all.
+  const out = translateDocument('Item', {
+    name: 'Great Weapon Master',
+    type: 'feat',
+    system: { description: { value: '<p>…</p>' }, type: { value: 'feat' }, activities: {} },
+    flags: { plutonium: { page: 'feats.html', hash: 'great weapon master_phb' } },
+  });
+
+  assert.equal(out.type, 'feature');
+  assert.equal(out.system.featureType, 'feat');
 });
 
 

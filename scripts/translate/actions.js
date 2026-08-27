@@ -34,9 +34,21 @@ const ROLL_DATA = [
   [/@abilities\.([a-z]{3})\.value\b/gi, '@$1.value'],
   [/@abilities\.([a-z]{3})\.save\b/gi, '@$1.save'],
 
-  // dnd5e reaches a class's scaling table through the class that owns it; a5e
-  // puts each class resource in roll data under its own slug.
-  [/@scale\.[a-z0-9_-]+\.([a-z0-9_-]+)/gi, (_, key) => `@${key.replace(/[^a-z0-9]+/gi, '').toLowerCase()}`],
+  // dnd5e reaches a class's scaling table through the class that owns it. a5e
+  // gathers every class's resources into one place on the actor:
+  //
+  //   t.classes = Object.entries(this.classes).reduce((e, [t, i]) => {
+  //     let a = i.getRollData()?.actorTransfer ?? {};
+  //     return e[t] = a, Object.assign(n, a.resources), e;
+  //   }, {}), t.classResources = n;
+  //
+  // so the slug alone is not a roll-data path — nothing sits at the top level
+  // under it, and `@sneakattack` silently evaluates to zero. a5e's own content
+  // writes `@classResources.<slug>`, and so do we.
+  [
+    /@scale\.[a-z0-9_-]+\.([a-z0-9_-]+)/gi,
+    (_, key) => `@classResources.${key.replace(/[^a-z0-9]+/gi, '').toLowerCase()}`,
+  ],
 ];
 
 /** Rewrite a formula's roll-data references from dnd5e's names into a5e's. */

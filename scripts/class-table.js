@@ -151,11 +151,16 @@ function scalable(values) {
  * @returns {object[]} entries for `system.resources`
  */
 export function resourcesFromClassTable(html) {
+  const seen = new Set();
+
   return parseClassTable(html)
     .filter((col) => !SLOT_GROUP.test(col.group) && scalable(col.values))
     .map((col) => {
       const slug = slugOf(col.label);
-      if (!slug) return null;
+      // Two columns can slug the same — a5e keys resources by slug and the
+      // second would silently displace the first in roll data.
+      if (!slug || seen.has(slug)) return null;
+      seen.add(slug);
 
       return {
         name: col.label,
@@ -163,10 +168,31 @@ export function resourcesFromClassTable(html) {
         consumable: false,
         displayOnCore: true,
         recovery: 'longRest',
-        reference: { ...col.values },
+        reference: fillForward(col.values),
       };
     })
     .filter(Boolean);
+}
+
+// a5e reads one level out of the table and takes a miss as nothing at all:
+//
+//   let i = n.reference?.[e] || "", … a ||= 0;
+//
+// so a level the table skipped would read as zero rather than as "unchanged".
+// A class table states a value that holds until it changes, so carry it.
+function fillForward(values) {
+  const levels = Object.keys(values).map(Number).sort((a, b) => a - b);
+  if (!levels.length) return {};
+
+  const out = {};
+  let last = null;
+
+  for (let level = levels[0]; level <= 20; level += 1) {
+    if (values[level] != null) last = values[level];
+    if (last != null) out[level] = last;
+  }
+
+  return out;
 }
 
 /**
