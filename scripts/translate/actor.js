@@ -66,7 +66,11 @@ function sensesOf(system) {
   const unit = pick(DISTANCE_UNITS, sn.units, 'feet');
   const out = {};
   SENSE_KEYS.forEach((key) => {
-    out[key] = { distance: Number(sn[key]) || 0, unit };
+    // Plutonium writes a statblock sense flat, but its Charactermancer — the
+    // path a race or a background takes — writes the same thing one level down,
+    // under `ranges`. Reading only the flat one lost every sense a heritage grants.
+    const distance = Number(sn[key] ?? sn.ranges?.[key]) || 0;
+    out[key] = { distance, unit };
     if (key === 'blindsight') out[key].otherwiseBlind = false;
   });
   return out;

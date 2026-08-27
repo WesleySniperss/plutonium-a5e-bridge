@@ -2084,6 +2084,57 @@ test('consumable: a stale consumer id is corrected once the item exists', async 
 });
 
 
+// --- senses ------------------------------------------------------------------
+
+test('senses: a statblock sense is read where the statblock puts it', () => {
+  const out = translateDocument('Actor', {
+    name: 'Troll',
+    type: 'npc',
+    system: {
+      abilities: {},
+      attributes: { ac: { flat: 15 }, hp: { value: 84, max: 84 }, movement: {}, senses: { darkvision: 60, units: 'ft' } },
+      details: { cr: 5 },
+      traits: { size: 'lg' },
+    },
+  }).system;
+
+  assert.deepEqual(out.attributes.senses.darkvision, { distance: 60, unit: 'feet' });
+});
+
+test('senses: a sense granted by a heritage is read where that path puts it', () => {
+  // Plutonium's Charactermancer writes the same thing one level down, under
+  // `ranges` — `_doApplySensesFormDataToActorUpdate` does
+  // `dataTarget.ranges[kSenseRange] = …` against `attributes.senses`.
+  const out = translateDocument('Actor', {
+    name: 'Elf',
+    type: 'character',
+    system: {
+      abilities: {},
+      attributes: { ac: {}, hp: { value: 10, max: 10 }, movement: {}, senses: { ranges: { darkvision: 60 }, units: 'ft' } },
+      details: {},
+      traits: { size: 'med' },
+    },
+  }).system;
+
+  assert.equal(out.attributes.senses.darkvision.distance, 60);
+});
+
+test('updates: a sense arriving as an update is remapped, not dropped', () => {
+  // Without this the key matches no a5e field and `pruneUpdate` throws it away,
+  // so a heritage that grants darkvision granted nothing at all.
+  const actor = {
+    name: 'Elf',
+    system: {
+      attributes: { senses: { darkvision: { distance: 0, unit: 'feet' } } },
+      schema: fakeSchema({ 'attributes.senses.darkvision.distance': 'leaf' }),
+    },
+  };
+
+  const out = pruneUpdate(actor, { system: { attributes: { senses: { ranges: { darkvision: 60 } } } } });
+  assert.equal(out.system.attributes.senses.darkvision.distance, 60);
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

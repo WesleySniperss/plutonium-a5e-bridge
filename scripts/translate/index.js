@@ -117,6 +117,16 @@ const UPDATE_RULES = [
     },
   },
 
+  // A sense granted through the Charactermancer arrives as
+  // `attributes.senses.ranges.darkvision`; a5e keeps a distance and a unit per
+  // sense. Without this the key matches no a5e field and is dropped, so a
+  // heritage that grants darkvision granted nothing.
+  {
+    from: /^system\.attributes\.senses\.ranges\.([a-z]+)$/,
+    to: 'system.attributes.senses.$1.distance',
+    value: (v) => Number(v) || 0,
+  },
+
   // dnd5e grades a skill 0 / 0.5 / 1 / 2; a5e has no half-proficiency.
   {
     from: /^system\.skills\.([a-z]{3})\.value$/,
