@@ -26,6 +26,7 @@ import {
 } from './actor-import.js';
 import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from './config-shim.js';
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
+import { installActorShim } from './actor-shim.js';
 import { registerSettings } from './settings.js';
 import { ID, log, warn } from './util/log.js';
 import { translateDocument } from './translate/index.js';
@@ -43,6 +44,10 @@ Hooks.once('init', () => {
   // The dnd5e-only sheet class Plutonium libWraps is only needed by
   // `Patcher.init()`, which runs in its `ready` handler — `init` is early enough.
   installPatchTargets();
+
+  // Plutonium reads a character's existing proficiencies in dnd5e's shape before
+  // it creates anything, so this has to be in place ahead of any import.
+  installActorShim();
 
   // Plutonium assigns its API at import time, so the bridge can go in this early
   // — well before the first import can possibly be started.

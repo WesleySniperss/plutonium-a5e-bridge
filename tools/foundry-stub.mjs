@@ -50,6 +50,10 @@ function setProperty(obj, path, value) {
   return true;
 }
 
+function getProperty(obj, path) {
+  return path.split(".").reduce((node, part) => (node == null ? node : node[part]), obj);
+}
+
 /** Foundry adds this to `String.prototype`; `toOrigin` builds class slugs with it. */
 function slugify({ replacement = '-', strict = false } = {}) {
   let slug = this.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, replacement)
@@ -69,7 +73,7 @@ class NumberField {}
 
 export function installFoundryStub() {
   globalThis.foundry = {
-    utils: { randomID, flattenObject, expandObject, setProperty },
+    utils: { randomID, flattenObject, expandObject, setProperty, getProperty },
     data: { fields: { ObjectField, SchemaField, NumberField } },
   };
   if (!String.prototype.slugify) {

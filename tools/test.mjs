@@ -1513,6 +1513,84 @@ test("bridge: Plutonium can still find the item it asked us to create", async ()
 });
 
 
+// --- tool proficiencies ------------------------------------------------------
+
+const toolActor = () => ({
+  name: 'Serthalqin',
+  system: {
+    proficiencies: { tools: [] },
+    schema: fakeSchema({ 'proficiencies.tools': 'leaf' }),
+  },
+});
+
+test('updates: a rogue keeps its thieves tools', () => {
+  // Plutonium writes each tool separately, in dnd5e ids; a5e keeps one list,
+  // keyed the way CONFIG.A5E.tools is.
+  const out = pruneUpdate(toolActor(), { system: { tools: { thief: { value: 1 } } } });
+  assert.deepEqual(out.system.proficiencies.tools, ['thievesTools']);
+});
+
+test('updates: several tools in one update all survive', () => {
+  // Each dnd5e key collapses onto the same a5e key, so without carrying the
+  // running list forward only the last one would be left standing.
+  const out = pruneUpdate(toolActor(), {
+    system: { tools: { thief: { value: 1 }, herb: { value: 1 }, smith: { value: 2 } } },
+  });
+  assert.deepEqual(
+    out.system.proficiencies.tools.sort(),
+    ['herbalismKit', 'smithsTools', 'thievesTools'],
+  );
+});
+
+test('updates: tools already held are not duplicated, and 0 adds nothing', () => {
+  const actor = toolActor();
+  actor.system.proficiencies.tools = ['thievesTools'];
+
+  const out = pruneUpdate(actor, {
+    system: { tools: { thief: { value: 1 }, lute: { value: 0 } } },
+  });
+  assert.deepEqual(out.system.proficiencies.tools, ['thievesTools']);
+});
+
+test('updates: an unknown tool id is kept rather than dropped', () => {
+  const out = pruneUpdate(toolActor(), { system: { tools: { homebrewKit: { value: 1 } } } });
+  assert.deepEqual(out.system.proficiencies.tools, ['homebrewKit']);
+});
+
+test('actor shim: the field Plutonium reads exists, and stays out of the data', async () => {
+  // Plutonium does MiscUtil.get(actor, "_source", "system", "tools") and then
+  // dereferences it. Undefined is what killed the Rogue import, with
+  // "Cannot read properties of undefined" naming whichever tool it wanted.
+  const prevConfig = globalThis.CONFIG;
+  const prevGame = globalThis.game;
+
+  class FakeActor {
+    constructor() { this.type = 'character'; this._source = { system: { skills: {} } }; }
+    prepareData() { this.prepared = true; }
+  }
+  globalThis.CONFIG = { Actor: { documentClass: FakeActor } };
+  globalThis.game = { ...prevGame, actors: [] };
+
+  try {
+    const { installActorShim } = await import('../scripts/actor-shim.js');
+    assert.equal(installActorShim(), true);
+
+    const actor = new FakeActor();
+    actor.prepareData();
+
+    assert.ok(actor.prepared, 'the original prepareData still runs');
+    assert.deepEqual(actor._source.system.tools, {}, 'Plutonium finds an empty answer');
+
+    // Non-enumerable, so it is never cloned into an update or written to the db.
+    assert.deepEqual(Object.keys(actor._source.system), ['skills']);
+    assert.equal(JSON.parse(JSON.stringify(actor._source)).system.tools, undefined);
+  } finally {
+    globalThis.CONFIG = prevConfig;
+    globalThis.game = prevGame;
+  }
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

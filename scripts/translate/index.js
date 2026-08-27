@@ -1,5 +1,10 @@
 import { actorRollContext, translateActor } from './actor.js';
-import { ARMOR_PROFICIENCY, WEAPON_PROFICIENCY, mapProficiencies } from './maps.js';
+import {
+  ARMOR_PROFICIENCY,
+  TOOL_PROFICIENCY,
+  WEAPON_PROFICIENCY,
+  mapProficiencies,
+} from './maps.js';
 import { translateItem } from './item.js';
 import { attachSpellBook, spellBookIdOf } from '../spellbook.js';
 import { debug, error } from '../util/log.js';
@@ -98,6 +103,20 @@ const UPDATE_RULES = [
     value: (v) => [v ?? []].flat(),
   },
 
+  // dnd5e grades each tool separately under `system.tools.<id>.value`; a5e keeps
+  // a flat list of the ones you are proficient with. Anything above 0 counts.
+  {
+    from: /^system\.tools\.([A-Za-z0-9_]+)\.value$/,
+    to: 'system.proficiencies.tools',
+    value: (v, match, doc, held) => {
+      const list = [held ?? []].flat();
+      if (!(Number(v) >= 1)) return list;
+
+      const id = TOOL_PROFICIENCY[match[1]] ?? match[1];
+      return list.includes(id) ? list : [...list, id];
+    },
+  },
+
   // dnd5e grades a skill 0 / 0.5 / 1 / 2; a5e has no half-proficiency.
   {
     from: /^system\.skills\.([a-z]{3})\.value$/,
@@ -113,13 +132,23 @@ const UPDATE_RULES = [
   },
 ];
 
-function remap(key, value) {
+// `kept` is passed in because several dnd5e keys can collapse onto one a5e key —
+// each tool is graded separately in dnd5e, while a5e keeps a single list — and
+// then the rule has to build on what earlier keys in the same update produced,
+// not just on what the document already holds.
+function remap(key, value, { doc, kept } = {}) {
   for (const rule of UPDATE_RULES) {
     const match = key.match(rule.from);
     if (!match) continue;
 
     const to = rule.to.replace(/\$(\d)/g, (_, index) => match[Number(index)]);
-    return [to, rule.value ? rule.value(value) : value];
+    if (!rule.value) return [to, value];
+
+    const held = Object.hasOwn(kept ?? {}, to)
+      ? kept[to]
+      : foundry.utils.getProperty(doc ?? {}, to);
+
+    return [to, rule.value(value, match, doc, held)];
   }
   return [key, value];
 }
@@ -139,7 +168,7 @@ export function pruneUpdate(doc, update) {
   let dropped = 0;
 
   for (const [rawKey, rawValue] of Object.entries(flat)) {
-    const [key, value] = remap(rawKey, rawValue);
+    const [key, value] = remap(rawKey, rawValue, { doc, kept });
 
     if (!key.startsWith('system.')) {
       kept[key] = value;

@@ -268,6 +268,57 @@ export const WEAPON_PROFICIENCY = {
   mar: 'martial',
 };
 
+// dnd5e keys a tool by a short id; a5e keys `CONFIG.A5E.tools` by a camel-cased
+// full name, grouped into artisansTools / gamingSets / instruments /
+// miscellaneous / vehicles. Only the key matters for proficiency — a5e stores a
+// flat array of them under `system.proficiencies.tools`.
+export const TOOL_PROFICIENCY = {
+  // miscellaneous
+  disg: 'disguiseKit',
+  forg: 'forgeryKit',
+  herb: 'herbalismKit',
+  navg: 'navigatorsTools',
+  pois: 'poisonersKit',
+  thief: 'thievesTools',
+
+  // artisans
+  alchemist: 'alchemistsSupplies',
+  brewer: 'brewersSupplies',
+  calligrapher: 'calligraphersSupplies',
+  carpenter: 'carpentersTools',
+  cartographer: 'cartographersTools',
+  cobbler: 'cobblersTools',
+  cook: 'cooksUtensils',
+  glassblower: 'glassblowersTools',
+  jeweler: 'jewelersTools',
+  leatherworker: 'leatherworkersTools',
+  mason: 'masonsTools',
+  painter: 'paintersSupplies',
+  potter: 'pottersTools',
+  smith: 'smithsTools',
+  tinker: 'tinkersTools',
+  weaver: 'weaversTools',
+  woodcarver: 'woodcarversTools',
+
+  // instruments — spelled the same in both
+  bagpipes: 'bagpipes',
+  drum: 'drum',
+  dulcimer: 'dulcimer',
+  flute: 'flute',
+  horn: 'horn',
+  lute: 'lute',
+  lyre: 'lyre',
+  panflute: 'panflute',
+  shawm: 'shawm',
+  viol: 'viol',
+
+  // vehicles
+  land: 'landVehicles',
+  water: 'waterVehicles',
+  air: 'airVehicles',
+  space: 'spaceVehicles',
+};
+
 /**
  * Translate a list of proficiency ids, leaving anything unrecognised alone —
  * homebrew and a5e-native ids pass through rather than being thrown away.
