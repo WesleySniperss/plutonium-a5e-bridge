@@ -1,4 +1,4 @@
-import { classSlug } from './maps.js';
+import { classSlug, resourceSlug } from './maps.js';
 
 // dnd5e subclasses and a5e archetypes really do work the same way: a set of
 // features handed out at fixed class levels. What differs is only the encoding.
@@ -219,8 +219,7 @@ export function resourcesFromAdvancement(system) {
   return advancement
     .filter((entry) => entry?.type === 'ScaleValue' && entry.configuration?.scale)
     .map((entry) => {
-      const slug = String(entry.configuration.identifier || entry.title || '')
-        .toLowerCase().replace(/[^a-z0-9]+/g, '');
+      const slug = resourceSlug(entry.configuration.identifier || entry.title || '');
       if (!slug) return null;
 
       const reference = {};

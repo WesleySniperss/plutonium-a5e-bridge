@@ -8,6 +8,7 @@ import {
   RECOVERY_PERIOD,
   TARGET_TYPE,
   pick,
+  resourceSlug,
 } from './maps.js';
 
 // dnd5e 5.x hangs everything rollable off `system.activities`: a keyed record of
@@ -47,7 +48,7 @@ const ROLL_DATA = [
   // writes `@classResources.<slug>`, and so do we.
   [
     /@scale\.[a-z0-9_-]+\.([a-z0-9_-]+)/gi,
-    (_, key) => `@classResources.${key.replace(/[^a-z0-9]+/gi, '').toLowerCase()}`,
+    (_, key) => `@classResources.${resourceSlug(key)}`,
   ],
 ];
 
@@ -313,7 +314,19 @@ function areaOf(target) {
   const width = Number(tpl.width) || 0;
   const height = Number(tpl.height) || 0;
 
-  const area = { shape, quantity: Number(tpl.count) || 1, scaling: {}, default: true, label: '' };
+  // Without this a5e knows the shape but never offers to put it on the canvas,
+  // so an imported fireball has a 20-foot sphere that cannot be placed. a5e sets
+  // it on 314 of the 448 area actions it ships — the exceptions look like hand
+  // authoring rather than a rule — and in dnd5e a `template` on the activity is
+  // itself the statement that this effect is placed, so it carries straight over.
+  const area = {
+    shape,
+    quantity: Number(tpl.count) || 1,
+    placeTemplate: true,
+    scaling: {},
+    default: true,
+    label: '',
+  };
 
   switch (shape) {
     case 'circle':
@@ -433,6 +446,20 @@ export function activityToAction(activity, opts = {}) {
         impliedAbility: opts.isWeapon ? ability : null,
         magicBonus: opts.magicBonus,
       });
+
+      // dnd5e keeps the two-handed damage apart, on the item rather than the
+      // activity, so it is not among the parts above. a5e has no such field —
+      // its own longsword carries a second damage roll, 1d8 and 1d10 side by
+      // side — and without this an imported versatile weapon can only ever roll
+      // one-handed. The `versatile` property still labels it on the sheet.
+      if (opts.versatileDamage) {
+        addDamageRolls(rolls, [opts.versatileDamage], {
+          isSpell,
+          critBonus: activity.damage?.critical?.bonus ?? '',
+          impliedAbility: opts.isWeapon ? ability : null,
+          magicBonus: opts.magicBonus,
+        });
+      }
       break;
     }
 

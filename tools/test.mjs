@@ -497,10 +497,10 @@ test('formulas: a scale value points at the class resource slug', () => {
   // the actor as `classResources`, and nothing sits at the top level under the
   // slug alone — `@sneakattack` evaluates to zero without complaint. a5e's own
   // packs write `@classResources.<slug>`, which is the reference to produce.
-  assert.equal(translateFormula('@scale.rogue.sneak-attack'), '@classResources.sneakattack');
+  assert.equal(translateFormula('@scale.rogue.sneak-attack'), '@classResources.sneak-attack');
   assert.equal(
     translateFormula('@scale.illriggerrevised.blood_price + 2'),
-    '@classResources.bloodprice + 2',
+    '@classResources.blood-price + 2',
   );
 });
 
@@ -944,7 +944,11 @@ test('class: a scale value becomes an a5e class resource', () => {
 
   const [resource] = rogue.system.resources;
   assert.equal(resource.name, 'Sneak Attack');
-  assert.equal(resource.slug, 'sneakattack');
+  // a5e hyphenates: ClassResourceManager falls back to name.slugify({strict:true}),
+  // and its own packs are written that way — @classResources.sneak-attack. Running
+  // the words together resolves against our own class but not against a native one,
+  // which is exactly the case when imported features are attached to a5e's Rogue.
+  assert.equal(resource.slug, 'sneak-attack');
   assert.equal(resource.reference[1], '1d6');
   assert.equal(resource.reference[3], '2d6');
   assert.equal(resource.reference[5], '3d6');
@@ -1662,7 +1666,7 @@ test('class table: a homebrew class scales off its own table', () => {
   // Plutonium builds ScaleValue advancements from `srdData` alone, so homebrew
   // arrives with none — this is the only statement of the progression there is.
   const resources = resourcesFromClassTable(illriggerTable);
-  const damage = resources.find((r) => r.slug === 'balefuldamage');
+  const damage = resources.find((r) => r.slug === 'baleful-damage');
 
   assert.ok(damage, 'the dice column becomes a resource');
   assert.equal(damage.reference[1], '1d8');
@@ -1678,7 +1682,7 @@ test('class table: spell slots are left to a5e', () => {
 
 test('class table: a column of feature names is not a resource', () => {
   const slugs = resourcesFromClassTable(illriggerTable).map((r) => r.slug);
-  assert.deepEqual(slugs.sort(), ['balefuldamage', 'interdictboons']);
+  assert.deepEqual(slugs.sort(), ['baleful-damage', 'interdict-boons']);
 });
 
 test('class table: choices are counted as what each level adds', () => {
@@ -1709,7 +1713,7 @@ test('class: the table fills the gap where advancements are missing', () => {
   };
 
   const slugs = translateDocument('Item', homebrew).system.resources.map((r) => r.slug);
-  assert.ok(slugs.includes('balefuldamage'), 'homebrew now scales');
+  assert.ok(slugs.includes('baleful-damage'), 'homebrew now scales');
 });
 
 
@@ -1718,7 +1722,7 @@ test('class table: a level the table skips keeps the last value, not zero', () =
   //   let i = n.reference?.[e] || "", … a ||= 0;
   // so a gap would read as zero rather than as "unchanged".
   const resources = resourcesFromClassTable(illriggerTable);
-  const damage = resources.find((r) => r.slug === 'balefuldamage');
+  const damage = resources.find((r) => r.slug === 'baleful-damage');
 
   assert.equal(damage.reference[7], '2d8');
   assert.equal(damage.reference[8], '2d8', 'carried past the last stated level');
@@ -1811,6 +1815,70 @@ test('asi: only classes, never archetypes', async () => {
   };
 
   assert.equal(await ensureAsiGrants(archetype), false);
+});
+
+
+test('weapon: a versatile weapon can be swung two-handed', () => {
+  // dnd5e keeps two-handed damage on the item, apart from the activity's parts;
+  // a5e has no such field and carries a second damage roll instead. Its own
+  // longsword ships "1d8 + @str.mod" and "1d10 + @str.mod" side by side.
+  const longsword = translateDocument('Item', {
+    name: 'Longsword',
+    type: 'weapon',
+    system: {
+      description: { value: '<p>…</p>' },
+      properties: ['ver'],
+      damage: { versatile: { number: 1, denomination: 10, types: ['slashing'] } },
+      activities: {
+        a: {
+          _id: 'a',
+          type: 'attack',
+          attack: { type: { value: 'melee' }, ability: 'str' },
+          damage: { parts: [{ number: 1, denomination: 8, types: ['slashing'], custom: { enabled: false } }] },
+        },
+      },
+    },
+  });
+
+  const formulas = Object.values(first(longsword.system.actions).rolls)
+    .filter((r) => r.type === 'damage')
+    .map((r) => r.formula);
+
+  assert.deepEqual(formulas, ['1d8 + @str.mod', '1d10 + @str.mod']);
+  // The property still labels it, keyed by CONFIG.A5E.versatileOptions.
+  assert.equal(longsword.system.versatile, 'd10');
+  assert.ok(longsword.system.weaponProperties.includes('versatile'));
+});
+
+test('weapon: a non-versatile weapon gains no second roll', () => {
+  const club = translateDocument('Item', {
+    name: 'Club',
+    type: 'weapon',
+    system: {
+      description: { value: '<p>…</p>' },
+      properties: [],
+      activities: {
+        a: {
+          _id: 'a',
+          type: 'attack',
+          attack: { type: { value: 'melee' }, ability: 'str' },
+          damage: { parts: [{ number: 1, denomination: 4, types: ['bludgeoning'], custom: { enabled: false } }] },
+        },
+      },
+    },
+  });
+
+  const damage = Object.values(first(club.system.actions).rolls).filter((r) => r.type === 'damage');
+  assert.equal(damage.length, 1);
+});
+
+test('spell: an area effect can actually be placed on the canvas', () => {
+  // a5e knows the shape either way, but without `placeTemplate` it never offers
+  // to put it down — 314 of the 448 area actions the system ships set it.
+  const area = first(translateDocument('Item', fireball).system.actions).area;
+  assert.equal(area.shape, 'sphere');
+  assert.equal(area.radius, 20);
+  assert.equal(area.placeTemplate, true);
 });
 
 

@@ -174,6 +174,9 @@ function toObject(data, ctx) {
       ...ctx,
       isWeapon: kind.objectType === 'weapon',
       magicBonus: Number(system.magicalBonus) || 0,
+      // Lives on the item in dnd5e, not the activity, so the action builder
+      // cannot reach it on its own.
+      versatileDamage: kind.objectType === 'weapon' ? (system.damage?.versatile ?? null) : null,
     }),
   };
 

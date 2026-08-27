@@ -1,3 +1,5 @@
+import { resourceSlug } from './translate/maps.js';
+
 // Everything a class does per level lives in its table, and for homebrew that is
 // the *only* place it lives. Plutonium builds dnd5e `ScaleValue` advancements
 // from `srdData` alone:
@@ -124,9 +126,7 @@ export function parseClassTable(html) {
   return columns.filter((col) => col.label && Object.keys(col.values).length);
 }
 
-function slugOf(label) {
-  return String(label).toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
+const slugOf = resourceSlug;
 
 // A column is worth turning into a resource when every rung is a number or a
 // dice expression — "5", "1d8", "2d6". A column of feature names is not.

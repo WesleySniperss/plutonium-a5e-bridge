@@ -349,3 +349,20 @@ export function pick(map, key, dflt) {
   const val = map[key];
   return val === undefined ? dflt : val;
 }
+
+/**
+ * A class resource's key, spelled the way a5e spells its own.
+ *
+ * `ClassResourceManager` falls back to `name.slugify({ strict: true })`, which
+ * hyphenates, and the system's packs are written that way throughout —
+ * `@classResources.sneak-attack`, `@classResources.searing-fire-damage`.
+ * Running the words together instead would still resolve against our own
+ * imported class, but not against one a5e ships, which is exactly what happens
+ * when imported features are attached to a native class.
+ */
+export function resourceSlug(label) {
+  return String(label ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
