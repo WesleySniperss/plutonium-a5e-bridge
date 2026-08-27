@@ -5,6 +5,7 @@ import {
   parseSubclassFeatureHash,
 } from './translate/origins.js';
 import { classSlug } from './translate/maps.js';
+import { ensureAsiGrants } from './asi-grants.js';
 import { ID, NAME, debug, error, log, warn } from './util/log.js';
 
 // A class and an archetype hand out features exactly the same way in a5e: a
@@ -361,7 +362,12 @@ async function linkOne(owner, kind, features) {
   const levels = [...new Set(entries.map((e) => e.level))].sort((a, b) => a - b);
   log(`Linked "${owner.name}": ${entries.length} feature(s) at level ${levels.join(', ')}.`);
 
-  if (kind === KINDS.class) await setArchetypeLevel(owner);
+  if (kind === KINDS.class) {
+    await setArchetypeLevel(owner);
+    // a5e carries the ability score increase on the class itself, not off the
+    // level number, so an imported class offers none until it is given them.
+    await ensureAsiGrants(owner);
+  }
 
   await publishOwner(owner, kind);
   return true;

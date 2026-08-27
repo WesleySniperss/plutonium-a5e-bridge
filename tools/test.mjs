@@ -1751,6 +1751,69 @@ test('feat: an imported feat is shaped the way a5e ships its own', () => {
 });
 
 
+// --- ability score increases -------------------------------------------------
+
+test('asi: an imported class gets what a5e ships on its own classes', async () => {
+  // Read out of the system's own `a5e-classes` pack: every class but three
+  // carries ten `ability` grants, two per level at 4/8/12/16/19, each worth one
+  // point and choosable from all six abilities.
+  const { ensureAsiGrants } = await import('../scripts/asi-grants.js');
+
+  let written = null;
+  const cls = {
+    type: 'class',
+    name: 'Illrigger',
+    system: { grants: {} },
+    async update(data) { written = data; },
+  };
+
+  assert.equal(await ensureAsiGrants(cls), true);
+
+  const grants = Object.values(written['system.grants']);
+  assert.equal(grants.length, 10, 'two points at each of five levels');
+
+  const levels = [...new Set(grants.map((g) => g.level))].sort((a, b) => a - b);
+  assert.deepEqual(levels, [4, 8, 12, 16, 19]);
+
+  const one = grants[0];
+  assert.equal(one.grantType, 'ability');
+  assert.equal(one.levelType, 'class');
+  assert.equal(one.optional, true, 'the point can go to a feat instead');
+  assert.equal(one.bonus, '1');
+  assert.equal(one.abilities.total, 1);
+  assert.deepEqual(one.abilities.options, ['str', 'dex', 'con', 'int', 'wis', 'cha']);
+  assert.deepEqual(one.context.types, ['base']);
+});
+
+test('asi: a class that already has them is left alone', async () => {
+  // a5e's own classes carry these, and so does one this has already run on —
+  // adding a second set would offer the points twice.
+  const { ensureAsiGrants } = await import('../scripts/asi-grants.js');
+
+  const native = {
+    type: 'class',
+    name: 'Marshal',
+    system: { grants: { abc: { grantType: 'ability', level: 4 } } },
+    async update() { throw new Error('must not write'); },
+  };
+
+  assert.equal(await ensureAsiGrants(native), false);
+});
+
+test('asi: only classes, never archetypes', async () => {
+  const { ensureAsiGrants } = await import('../scripts/asi-grants.js');
+
+  const archetype = {
+    type: 'archetype',
+    name: 'Architect of Ruin',
+    system: { grants: {} },
+    async update() { throw new Error('must not write'); },
+  };
+
+  assert.equal(await ensureAsiGrants(archetype), false);
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

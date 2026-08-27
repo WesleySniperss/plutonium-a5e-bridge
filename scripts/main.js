@@ -30,6 +30,7 @@ import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from '
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { installActorShim } from './actor-shim.js';
 import { publishFeats } from './feats.js';
+import { addAsiGrants } from './asi-grants.js';
 import { registerSettings } from './settings.js';
 import { ID, log, warn } from './util/log.js';
 import { translateDocument } from './translate/index.js';
@@ -112,6 +113,7 @@ Hooks.once('ready', () => {
     setClassManeuvers,
     maneuverTemplates,
     publishFeats,
+    addAsiGrants,
     repairUseConsumers,
     rebuildArchetypeGrants,
     rebuildClassGrants,
