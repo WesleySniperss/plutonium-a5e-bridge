@@ -2,6 +2,7 @@ import { noteCreatedDocuments } from './grant-linker.js';
 import { publishImportedFeats } from './feats.js';
 import { assignSpellBooks } from './spellbook.js';
 import { addCommonManeuversTo } from './maneuvers.js';
+import { publishImportedContent } from './publish-content.js';
 import { repairQuantityConsumers } from './translate/actions.js';
 import { pruneUpdate, translateDocument } from './translate/index.js';
 import { ID, debug, log, warn } from './util/log.js';
@@ -139,6 +140,10 @@ export function installPlutoniumBridge() {
     // A feat is only offered from a compendium; an import leaves it in the
     // sidebar. Failing to publish must not take the import down with it.
     publishImportedFeats(created).catch((e) => debug(`Feat publishing failed: ${e.message}`));
+
+    // Spells and gear are only ever offered from a compendium — the browser and
+    // the builder never look at the sidebar.
+    publishImportedContent(created).catch((e) => debug(`Publishing failed: ${e.message}`));
     return created;
   };
 

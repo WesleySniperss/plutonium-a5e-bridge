@@ -3,6 +3,7 @@ import { adoptExistingFeatures, rebuildArchetypeGrants, rebuildClassGrants } fro
 import { repairUseConsumers } from './repair.js';
 import { addAsiGrants } from './asi-grants.js';
 import { backfillCommonManeuvers } from './maneuvers.js';
+import { publishAll } from './publish-content.js';
 import { ID, error, log } from './util/log.js';
 
 // Content imported by an earlier version of this bridge is missing things the
@@ -11,7 +12,7 @@ import { ID, error, log } from './util/log.js';
 // level-up. All of it can be recovered from what is already on the documents —
 // so it is, once, rather than being left as homework.
 
-const CURRENT = 4;
+const CURRENT = 5;
 
 /** Every class and archetype this bridge imported, wherever it ended up. */
 function importedOrigins() {
@@ -103,6 +104,7 @@ async function repairImportedContent() {
   const references = await repairResourceReferences();
   const asi = await addAsiGrants();
   const maneuvers = await backfillCommonManeuvers();
+  const publishedContent = await publishAll();
 
   let wired = 0;
   for (const owner of importedOrigins()) {
@@ -118,7 +120,7 @@ async function repairImportedContent() {
     }
   }
 
-  return { tagged, consumers, wired, references, asi, maneuvers };
+  return { tagged, consumers, wired, references, asi, maneuvers, publishedContent };
 }
 
 /**
@@ -138,10 +140,12 @@ export async function runMigrations() {
   if (done >= CURRENT) return;
 
   try {
-    const { tagged, consumers, wired, references, asi, maneuvers } = await repairImportedContent();
+    const {
+      tagged, consumers, wired, references, asi, maneuvers, publishedContent,
+    } = await repairImportedContent();
     await game.settings.set(ID, 'migration', CURRENT);
 
-    if (tagged || consumers || wired || references || asi || maneuvers) {
+    if (tagged || consumers || wired || references || asi || maneuvers || publishedContent) {
       const parts = [];
       if (tagged) parts.push(`tagged ${tagged} feature(s)`);
       if (consumers) parts.push(`restored ${consumers} charge consumer(s)`);
@@ -149,6 +153,7 @@ export async function runMigrations() {
       if (references) parts.push(`repointed ${references} scaling formula set(s)`);
       if (asi) parts.push(`gave ${asi} class(es) their ability score increases`);
       if (maneuvers) parts.push(`gave ${maneuvers} creature(s) the common manoeuvres`);
+      if (publishedContent) parts.push(`published ${publishedContent} item(s) to a compendium`);
       ui.notifications.info(`Plutonium ⇄ A5E: repaired earlier imports — ${parts.join(', ')}.`);
       log(`Migration complete: ${parts.join(', ')}.`);
     } else {

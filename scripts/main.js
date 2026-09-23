@@ -31,6 +31,7 @@ import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from '
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { installActorShim } from './actor-shim.js';
 import { publishFeats } from './feats.js';
+import { publishAll } from './publish-content.js';
 import { addAsiGrants } from './asi-grants.js';
 import { addCommonManeuvers, backfillCommonManeuvers } from './maneuvers.js';
 import { registerSettings } from './settings.js';
@@ -115,6 +116,7 @@ Hooks.once('ready', () => {
     setClassManeuvers,
     maneuverTemplates,
     publishFeats,
+    publishAll,
     addAsiGrants,
     addCommonManeuvers,
     backfillCommonManeuvers,

@@ -2213,6 +2213,74 @@ test('manoeuvres: re-importing does not hand out a second Grapple', async () => 
 });
 
 
+// --- publishing to compendiums -----------------------------------------------
+
+test('publish: a spell lands in a compendium, indexed the way a5e filters it', async () => {
+  // a5e's browser, its archetype chooser and a5e-mancer's pickers all read
+  // compendiums and never the sidebar. a5e indexes every pack once, in its setup
+  // hook — long before an import creates ours — so a pack published mid-session
+  // has to be re-indexed or it stays invisible until the world reloads.
+  const { publishItems } = await import('../scripts/publish-content.js');
+
+  const created = [];
+  let indexedWith = null;
+  let treeBuilt = false;
+
+  const pack = {
+    collection: 'world.plutonium-a5e-spells',
+    metadata: { label: 'Spells' },
+    index: [{ _id: 'x', type: 'spell' }],
+    async getIndex(opts) { if (opts?.fields) indexedWith = opts.fields; return this.index; },
+    initializeTree() { treeBuilt = true; },
+    async getDocument() { return null; },
+  };
+
+  const prevGame = globalThis.game;
+  const prevItem = globalThis.Item;
+  globalThis.game = { ...prevGame, packs: { get: () => pack }, user: { isGM: true } };
+  globalThis.Item = { implementation: { async create(data) { created.push(data); return { uuid: `Compendium.x.${data.name}` }; } } };
+
+  try {
+    const spell = {
+      name: 'Fireball',
+      type: 'spell',
+      flags: { 'plutonium-a5e': {}, plutonium: { hash: 'fireball_phb' } },
+      toObject: () => ({ _id: 'old', name: 'Fireball', type: 'spell' }),
+    };
+
+    assert.equal(await publishItems([spell]), 1);
+    assert.equal(created[0].name, 'Fireball');
+    assert.equal(created[0]._id, undefined, 'a fresh id in the pack');
+    assert.equal(created[0].flags['plutonium-a5e'].libraryKey, 'fireball_phb',
+      'keyed so re-importing updates rather than duplicates');
+
+    // The fields are a5e's own FIELD_MAPPINGS.spell — indexing with the wrong
+    // ones is not an error, the entries just arrive without what filters read.
+    assert.ok(indexedWith.includes('system.level'));
+    assert.ok(indexedWith.includes('system.schools'));
+    assert.ok(indexedWith.includes('system.components'));
+    assert.ok(treeBuilt, 'and the tree is rebuilt so the browser sees them');
+  } finally {
+    globalThis.game = prevGame;
+    globalThis.Item = prevItem;
+  }
+});
+
+test('publish: types with no compendium of their own are left alone', async () => {
+  const { publishItems } = await import('../scripts/publish-content.js');
+
+  const prevGame = globalThis.game;
+  globalThis.game = { ...prevGame, packs: { get: () => { throw new Error('must not touch a pack'); } } };
+
+  try {
+    const cls = { name: 'Illrigger', type: 'class', flags: {}, toObject: () => ({}) };
+    assert.equal(await publishItems([cls]), 0, 'classes are published by the linker instead');
+  } finally {
+    globalThis.game = prevGame;
+  }
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {
