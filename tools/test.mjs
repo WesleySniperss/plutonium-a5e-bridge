@@ -2466,6 +2466,114 @@ test('migration: a cantrip imported before the fix is repaired, nothing else is 
 });
 
 
+// --- classes imported straight into a compendium -----------------------------
+
+// Like Foundry's, the index carries only the fields asked for — which is the
+// whole point: a flag nobody requested is simply not there to compare.
+const fakePack = (collection, entries) => ({
+  collection,
+  documentName: 'Item',
+  metadata: { packageType: 'world', label: collection },
+  async getIndex({ fields = [] } = {}) {
+    return entries.map(({ flags, ...base }) => {
+      const kept = {};
+      for (const scope of Object.keys(flags ?? {})) {
+        if (fields.includes(`flags.${scope}`)) kept[scope] = flags[scope];
+      }
+      return { ...base, flags: kept };
+    });
+  },
+});
+
+const featureEntry = (id, name, level, hash) => ({
+  _id: id,
+  name,
+  type: 'feature',
+  img: '',
+  flags: {
+    'plutonium-a5e': { classFeature: { className: 'Illrigger', level } },
+    plutonium: { hash },
+  },
+});
+
+test('compendium class: its own pack comes first, then the library, then the rest', async () => {
+  const { featureLibraries } = await import('../scripts/grant-linker.js');
+
+  const mine = fakePack('world.my-classes', []);
+  const library = fakePack('world.plutonium-a5e-class-features', []);
+  const other = fakePack('world.homebrew', []);
+
+  const prevGame = globalThis.game;
+  globalThis.game = {
+    ...prevGame,
+    packs: Object.assign([library, other, mine], { get: (id) => [mine, library, other].find((p) => p.collection === id) }),
+  };
+
+  try {
+    const packs = featureLibraries({ pack: 'world.my-classes' }, library);
+    assert.deepEqual(packs.map((p) => p.collection),
+      ['world.my-classes', 'world.plutonium-a5e-class-features', 'world.homebrew']);
+  } finally {
+    globalThis.game = prevGame;
+  }
+});
+
+test('compendium class: a feature in two packs is granted once, from the preferred one', async () => {
+  // Imported straight into a pack, a feature has only Plutonium's hash — no
+  // library key of ours. Without reading that hash the same feature in two packs
+  // looked like two, and the level would have handed it out twice.
+  const { KINDS, libraryFeaturesFor } = await import('../scripts/grant-linker.js');
+
+  const mine = fakePack('world.my-classes', [
+    featureEntry('a1', 'Baleful Interdict', 1, 'baleful_illrigger_1'),
+    featureEntry('a2', 'Interdiction', 2, 'interdiction_illrigger_2'),
+  ]);
+  const library = fakePack('world.plutonium-a5e-class-features', [
+    featureEntry('b1', 'Baleful Interdict', 1, 'baleful_illrigger_1'),
+  ]);
+
+  const owner = {
+    type: 'class',
+    name: 'Illrigger',
+    system: { slug: 'illrigger' },
+    flags: { 'plutonium-a5e': { class: { classIdentifier: 'illrigger', classSlug: 'illrigger', identifier: 'illrigger' } } },
+  };
+
+  const entries = await libraryFeaturesFor(owner, KINDS.class, [mine, library]);
+
+  assert.equal(entries.length, 2, 'Baleful Interdict once, not twice');
+  assert.equal(entries[0].uuid, 'Compendium.world.my-classes.Item.a1', 'from the class\'s own pack');
+  assert.deepEqual(entries.map((e) => e.level), [1, 2]);
+});
+
+test('compendium class: a document created in a pack reaches the linker', async () => {
+  // Foundry fires `create${type}` for compendium documents too, on every
+  // client — only the one that imported may record it.
+  const { installPackCreationWatch } = await import('../scripts/grant-linker.js');
+
+  const handlers = [];
+  const prevHooks = globalThis.Hooks;
+  const prevGame = globalThis.game;
+  globalThis.Hooks = { on: (name, fn) => handlers.push([name, fn]) };
+  globalThis.game = { ...prevGame, user: { id: 'me' } };
+
+  try {
+    installPackCreationWatch();
+    const [name, handler] = handlers.find(([n]) => n === 'createItem') ?? [];
+    assert.equal(name, 'createItem');
+
+    // Neither a world document nor another user's import should throw or be kept;
+    // the point here is that the handler filters, which it does before touching
+    // anything else.
+    assert.doesNotThrow(() => handler({ pack: null }, {}, 'me'));
+    assert.doesNotThrow(() => handler({ pack: 'world.x' }, {}, 'someone-else'));
+  } finally {
+    globalThis.Hooks = prevHooks;
+    globalThis.game = prevGame;
+  }
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

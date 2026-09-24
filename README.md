@@ -119,12 +119,23 @@ a grant to point at.
 The same is true of a class: bring a class onto a 3rd-level character and its
 5th, 6th and 7th-level features are simply not in the import.
 
-So for automation on later levels, import the class or subclass **once from the
-sidebar** as well. A directory import is not level-limited, so it fills the
-library with the whole progression. The two are complementary, not alternatives:
+So for automation on later levels, import the class or subclass **once in
+full** as well — into the sidebar or straight into a compendium. Neither is
+level-limited, so either fills the library with the whole progression. The two
+are complementary, not alternatives:
 
-- Sidebar import — stocks the feature library and the class/archetype compendium.
+- Sidebar or compendium import — stocks the full feature progression.
 - Sheet import — sets the character up the way Plutonium intends.
+
+**Importing straight into a compendium works the same as the sidebar**, and is
+what Plutonium itself recommends. It needed its own handling: Plutonium writes to
+a compendium with `new Clazz(docData)` and `pack.importDocument(instance)`,
+never through the methods the bridge wraps, so the bridge now intercepts the
+construction instead, and learns what was created from Foundry's `createItem`
+hook. Features already in a compendium are granted from where they are rather
+than copied into the module's library, and the class's own pack is preferred
+when the same feature sits in more than one. The pack must be unlocked for the
+class's grants to be written back.
 
 **Importing a class does not import its features.** Plutonium keeps them in a
 separate list: **Class & Subclass Features**, in the *Items* tab of the sidebar.

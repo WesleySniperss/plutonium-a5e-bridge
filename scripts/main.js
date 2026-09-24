@@ -6,6 +6,7 @@ import {
   rebuildArchetypeGrants,
   rebuildClassGrants,
   rebuildHeritageGrants,
+  installPackCreationWatch,
   scheduleLink,
 } from './grant-linker.js';
 import { installPlutoniumBridge, takePackImportSeen } from './bridge.js';
@@ -93,6 +94,10 @@ Hooks.once('ready', () => {
   // An archetype's grants can only be wired up once the import has produced the
   // feature documents they point at.
   const api = plutonium.api;
+  // Plutonium recommends importing straight into a compendium, and those
+  // documents never reach the bridge; hear about them from Foundry instead.
+  installPackCreationWatch();
+
   if (api?.hooks?.on) {
     api.hooks.on('importComplete', () => {
       scheduleLink();

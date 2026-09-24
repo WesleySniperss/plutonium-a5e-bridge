@@ -131,6 +131,26 @@ export function noteCreatedDocuments(docs) {
   }
 }
 
+// An import into a compendium never passes through `UtilDocuments`, so the
+// bridge never sees what it created. Foundry announces it anyway — its creation
+// handler builds the document with `{parent, pack}` and then calls
+//
+//   Hooks.callAll(`create${type}`, doc, options, userId);
+//
+// for compendium documents exactly as for world ones. That hook fires on every
+// connected client, so only the one that did the importing records it.
+let watchingPacks = false;
+
+export function installPackCreationWatch() {
+  if (watchingPacks) return;
+  watchingPacks = true;
+
+  Hooks.on('createItem', (doc, _options, userId) => {
+    if (!doc?.pack || userId !== game.user?.id) return;
+    noteCreatedDocuments([doc]);
+  });
+}
+
 function clearPending() {
   pending.owners = [];
   pending.features = [];
@@ -277,36 +297,68 @@ function worldFeaturesFor(owner, kind) {
   return candidates;
 }
 
-/** Every feature the library holds for this owner, newest levels included. */
-async function libraryFeaturesFor(owner, kind, featurePack) {
+/** The world's own Item compendiums — the only ones an import can write to. */
+function worldItemPacks() {
+  return game.packs.filter((p) => p.documentName === 'Item' && p.metadata?.packageType === 'world');
+}
+
+/**
+ * Where to look for an owner's features, most preferred first.
+ *
+ * Plutonium recommends importing straight into a compendium, and then the
+ * features are already in one, with stable UUIDs of their own: copying them into
+ * the module's pack would only put every feature in two places. So the owner's
+ * own pack comes first, the module's library next, and every other world pack
+ * after — features can go to a different pack than their class.
+ */
+export function featureLibraries(owner, featurePack) {
+  const packs = [];
+  const add = (pack) => { if (pack && !packs.includes(pack)) packs.push(pack); };
+
+  if (owner.pack) add(game.packs.get(owner.pack));
+  add(featurePack);
+  for (const pack of worldItemPacks()) add(pack);
+
+  return packs;
+}
+
+/** Every feature the libraries hold for this owner, newest levels included. */
+export async function libraryFeaturesFor(owner, kind, packs) {
   const ownerMeta = ownerMetaFor(owner, kind);
-  const index = await featurePack.getIndex({ fields: ['name', 'type', 'img', `flags.${FLAG_SCOPE}`] });
+  const byKey = new Map();
 
-  const byLevel = new Map();
-
-  for (const entry of index) {
-    if (entry.type !== 'feature') continue;
-    const meta = entry.flags?.[FLAG_SCOPE]?.[kind.featureFlag];
-    if (!belongsTo(meta, ownerMeta, kind)) continue;
-
-    // Identify a feature by its 5etools entry, not by its name. Homebrew reuses
-    // names freely — Illrigger has three features all called "Diabolic Contract
-    // feature" — and keying on the name silently dropped every one after the
-    // first, so a level that grants two features handed out one.
-    const key = entry.flags?.[FLAG_SCOPE]?.libraryKey
-      || entry.flags?.plutonium?.hash
-      || `${meta.level}::${slug(entry.name)}::${entry._id}`;
-    if (byLevel.has(key)) continue;
-
-    byLevel.set(key, {
-      level: meta.level,
-      uuid: `Compendium.${featurePack.collection}.Item.${entry._id}`,
-      name: entry.name,
-      img: entry.img ?? '',
+  for (const pack of packs) {
+    // `flags.plutonium` too: a feature imported straight into a pack has no
+    // library key of ours, only Plutonium's hash, and that is what lets the same
+    // feature in two packs be recognised as one rather than granted twice.
+    const index = await pack.getIndex({
+      fields: ['name', 'type', 'img', `flags.${FLAG_SCOPE}`, 'flags.plutonium'],
     });
+
+    for (const entry of index) {
+      if (entry.type !== 'feature') continue;
+      const meta = entry.flags?.[FLAG_SCOPE]?.[kind.featureFlag];
+      if (!belongsTo(meta, ownerMeta, kind)) continue;
+
+      // Identify a feature by its 5etools entry, not by its name. Homebrew reuses
+      // names freely — Illrigger has three features all called "Diabolic Contract
+      // feature" — and keying on the name silently dropped every one after the
+      // first, so a level that grants two features handed out one.
+      const key = entry.flags?.[FLAG_SCOPE]?.libraryKey
+        || entry.flags?.plutonium?.hash
+        || `${meta.level}::${slug(entry.name)}::${pack.collection}::${entry._id}`;
+      if (byKey.has(key)) continue;
+
+      byKey.set(key, {
+        level: meta.level,
+        uuid: `Compendium.${pack.collection}.Item.${entry._id}`,
+        name: entry.name,
+        img: entry.img ?? '',
+      });
+    }
   }
 
-  return [...byLevel.values()].sort((a, b) => a.level - b.level);
+  return [...byKey.values()].sort((a, b) => a.level - b.level);
 }
 
 // --- linking ----------------------------------------------------------------
@@ -323,6 +375,8 @@ async function linkOne(owner, kind, features) {
   const featurePack = await getOrCreatePack(kind.featurePack);
 
   for (const feature of features) {
+    // Already in a compendium, with a UUID that will not move: nothing to copy.
+    if (feature.pack) continue;
     const meta = flagsOf(feature)?.[kind.featureFlag] ?? {};
     const key = feature.flags?.plutonium?.hash ?? `${slug(feature.name)}-${meta.level}`;
     await publish(featurePack, feature, key);
@@ -340,7 +394,7 @@ async function linkOne(owner, kind, features) {
   // the grants could never be filled in afterwards.
   await publishOwner(owner, kind);
 
-  const entries = await libraryFeaturesFor(owner, kind, featurePack);
+  const entries = await libraryFeaturesFor(owner, kind, featureLibraries(owner, featurePack));
   log(`"${owner.name}": library holds ${entries.length} feature(s) for it.`);
 
   if (!entries.length) {
@@ -427,9 +481,10 @@ async function setArchetypeLevel(owner) {
   const meta = ownerMetaFor(owner, KINDS.class);
 
   const levels = [];
-  const pack = game.packs.get(`world.${KINDS.archetype.featurePack[0]}`);
 
-  if (pack) {
+  // Every world pack, not only the module's: subclass features imported
+  // straight into a compendium never pass through the module's library.
+  for (const pack of worldItemPacks()) {
     const index = await pack.getIndex({ fields: [`flags.${FLAG_SCOPE}`] });
     for (const entry of index) {
       const fm = entry.flags?.[FLAG_SCOPE]?.subclassFeature;
@@ -509,9 +564,23 @@ export function scheduleLink() {
  * Without this, that import wired up nothing at all and the class it belongs to
  * had to be imported again to notice them.
  */
-function ownersForFeatures(features) {
+async function ownersForFeatures(features) {
   const candidates = [...game.items];
   for (const actor of game.actors) candidates.push(...actor.items);
+
+  // A class imported into a compendium lives there, not in the sidebar. Only
+  // the entries whose index says they are one of ours are loaded.
+  const ownerTypes = new Set(Object.values(KINDS).map((k) => k.itemType));
+  for (const pack of worldItemPacks()) {
+    const index = await pack.getIndex({ fields: ['type', `flags.${FLAG_SCOPE}`] });
+    for (const entry of index) {
+      if (!ownerTypes.has(entry.type)) continue;
+      const flags = entry.flags?.[FLAG_SCOPE];
+      if (!flags || !Object.values(KINDS).some((k) => flags[k.ownerFlag])) continue;
+      const doc = await pack.getDocument(entry._id);
+      if (doc) candidates.push(doc);
+    }
+  }
 
   const owners = [];
   const seen = new Set();
@@ -542,7 +611,7 @@ export async function linkPending() {
   clearPending();
 
   if (!owners.length && features.length) {
-    owners = ownersForFeatures(features);
+    owners = await ownersForFeatures(features);
     if (owners.length) {
       log(`Import brought only features; re-wiring ${owners.length} owner(s) they belong to.`);
     }
