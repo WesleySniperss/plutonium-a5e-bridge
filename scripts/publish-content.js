@@ -46,6 +46,11 @@ const INDEX_FIELDS = {
     'system.description', 'system.price', 'system.quantity', 'system.rarity',
     'system.source',
   ],
+  npc: [
+    'system.description', 'system.details.cr', 'system.details.creatureTypes',
+    'system.details.elite', 'system.details.isSquad', 'system.details.isSwarm',
+    'system.details.terrain', 'system.traits.size', 'system.source',
+  ],
   generic: ['system.source', 'system.description'],
 };
 
@@ -174,4 +179,21 @@ export async function publishAll() {
 
   log(`Published ${published} item(s) and re-indexed the module's compendiums.`);
   return published;
+}
+
+/**
+ * Re-index the world's own compendiums after Plutonium has imported into one.
+ *
+ * a5e indexes every pack once, at startup, with the fields its filters read.
+ * Entries Plutonium adds afterwards arrive with Foundry's default index only —
+ * name, image, type — so the browser lists them and no level, school or CR
+ * filter ever matches them until the world is reloaded. World packs are the
+ * only ones an import can write to, so they are the only ones re-read.
+ */
+export async function reindexWorldPacks() {
+  for (const pack of game.packs) {
+    if (pack.metadata?.packageType !== 'world') continue;
+    if (!['Item', 'Actor'].includes(pack.documentName)) continue;
+    await reindexPack(pack);
+  }
 }

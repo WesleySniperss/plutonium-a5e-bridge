@@ -35,6 +35,7 @@ import {
   translateSubclass,
 } from './origins.js';
 import { resourcesFromClassTable } from '../class-table.js';
+import { translateDescription } from './description.js';
 import { debug } from '../util/log.js';
 
 // dnd5e keeps item properties as a Set; it arrives as an array or a Set depending
@@ -45,8 +46,10 @@ function props(system) {
   return new Set(Array.isArray(p) ? p : [...p]);
 }
 
+// Plutonium writes dnd5e-only enrichers into the text, which a5e shows as raw
+// markup; they are rewritten into ones a5e renders.
 function descriptionOf(system) {
-  return String(system?.description?.value ?? '');
+  return translateDescription(system?.description?.value ?? '');
 }
 
 // dnd5e 5.x source is an object; a5e wants one string.

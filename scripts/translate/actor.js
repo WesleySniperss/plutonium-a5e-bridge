@@ -1,5 +1,6 @@
 import { ABILITIES, ACTOR_TYPE, DISTANCE_UNITS, SIZE, SKILLS, pick } from './maps.js';
 import { debug } from '../util/log.js';
+import { translateDescription } from './description.js';
 
 const MOVEMENT_KEYS = ['walk', 'burrow', 'climb', 'fly', 'swim'];
 const SENSE_KEYS = ['blindsight', 'darkvision', 'tremorsense', 'truesight'];
@@ -233,7 +234,7 @@ export function translateActor(data) {
 
       details: {
         cr,
-        bio: String(system.details?.biography?.value ?? ''),
+        bio: translateDescription(system.details?.biography?.value ?? ''),
         creatureTypes: creatureTypesOf(system),
         isSwarm: !!system.details?.type?.swarm,
         isShapechanger: false,
@@ -241,7 +242,7 @@ export function translateActor(data) {
         elite: false,
         // dnd5e's "public" biography is the one players can read, so it belongs
         // in a5e's player-visible notes — not in the GM-only private ones.
-        notes: String(system.details?.biography?.public ?? ''),
+        notes: translateDescription(system.details?.biography?.public ?? ''),
         privateNotes: '',
         terrain: [],
       },

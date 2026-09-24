@@ -50,6 +50,10 @@ function setProperty(obj, path, value) {
   return true;
 }
 
+function deepClone(value) {
+  return value === undefined ? undefined : structuredClone(value);
+}
+
 function getProperty(obj, path) {
   return path.split(".").reduce((node, part) => (node == null ? node : node[part]), obj);
 }
@@ -73,7 +77,7 @@ class NumberField {}
 
 export function installFoundryStub() {
   globalThis.foundry = {
-    utils: { randomID, flattenObject, expandObject, setProperty, getProperty },
+    utils: { randomID, flattenObject, expandObject, setProperty, getProperty, deepClone },
     data: { fields: { ObjectField, SchemaField, NumberField } },
   };
   if (!String.prototype.slugify) {

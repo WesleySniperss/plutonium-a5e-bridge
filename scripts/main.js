@@ -8,7 +8,7 @@ import {
   rebuildHeritageGrants,
   scheduleLink,
 } from './grant-linker.js';
-import { installPlutoniumBridge } from './bridge.js';
+import { installPlutoniumBridge, takePackImportSeen } from './bridge.js';
 import { diagnose, report, reportIfBroken } from './diagnose.js';
 import { repairUseConsumers } from './repair.js';
 import { runMigrations } from './migrate.js';
@@ -31,7 +31,7 @@ import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from '
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { installActorShim } from './actor-shim.js';
 import { publishFeats } from './feats.js';
-import { publishAll } from './publish-content.js';
+import { publishAll, reindexWorldPacks } from './publish-content.js';
 import { addAsiGrants } from './asi-grants.js';
 import { addCommonManeuvers, backfillCommonManeuvers } from './maneuvers.js';
 import { registerSettings } from './settings.js';
@@ -93,7 +93,14 @@ Hooks.once('ready', () => {
   // An archetype's grants can only be wired up once the import has produced the
   // feature documents they point at.
   const api = plutonium.api;
-  if (api?.hooks?.on) api.hooks.on('importComplete', () => scheduleLink());
+  if (api?.hooks?.on) {
+    api.hooks.on('importComplete', () => {
+      scheduleLink();
+      // An import into a compendium leaves entries a5e's filters cannot read
+      // until the pack is re-indexed.
+      if (takePackImportSeen()) reindexWorldPacks().catch(() => {});
+    });
+  }
   else warn('Plutonium exposes no hooks API — archetype grants will need a manual rebuild.');
 
   game.modules.get(ID).api = {

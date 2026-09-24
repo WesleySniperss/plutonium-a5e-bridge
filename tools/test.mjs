@@ -2281,6 +2281,191 @@ test('publish: types with no compendium of their own are left alone', async () =
 });
 
 
+// --- cantrips, descriptions, compendium imports ------------------------------
+
+const cantrip = (scaling, custom) => translateDocument('Item', {
+  name: 'Fire Bolt',
+  type: 'spell',
+  system: {
+    description: { value: '<p>…</p>' },
+    level: 0,
+    school: 'evo',
+    properties: ['vocal', 'somatic'],
+    activities: {
+      a: {
+        _id: 'a',
+        type: 'attack',
+        attack: { type: { value: 'ranged', classification: 'spell' } },
+        damage: {
+          parts: [custom
+            ? { types: ['bludgeoning'], custom: { enabled: true, formula: custom }, scaling }
+            : { number: 1, denomination: 10, types: ['fire'], custom: { enabled: false }, scaling }],
+        },
+      },
+    },
+  },
+});
+
+const damageScaling = (item) => Object.values(first(item.system.actions).rolls)
+  .find((r) => r.type === 'damage').scaling;
+
+test('cantrip: damage grows with the caster, the way a5e writes its own', () => {
+  // Plutonium emits `scaling: { mode: "whole", number: 1 }` for every dice
+  // cantrip. Read as slot scaling it became `spellLevel`, which a cantrip never
+  // triggers — the damage never grew. a5e's own Fire Bolt carries exactly this:
+  assert.deepEqual(
+    damageScaling(cantrip({ mode: 'whole', number: 1 })),
+    { mode: 'cantrip', formula: '1d10', config: { value: '1d10' } },
+  );
+});
+
+test('cantrip: one whose damage is not dice is left unscaled, as a5e leaves its own', () => {
+  // Plutonium writes Shillelagh or Eldritch Blast as a custom formula with
+  // `mode: ""`; a5e's own versions of those carry no scaling either.
+  assert.deepEqual(damageScaling(cantrip({ mode: '' }, '1d8 + @mod')), {});
+});
+
+test('cantrip: a levelled spell still scales by slot', () => {
+  const fireball = translateDocument('Item', {
+    ...cantrip({ mode: 'whole', number: 1 }),
+    type: 'spell',
+    system: {
+      description: { value: '<p>…</p>' },
+      level: 3,
+      school: 'evo',
+      properties: [],
+      activities: {
+        a: {
+          _id: 'a',
+          type: 'save',
+          save: { ability: ['dex'], dc: { calculation: 'spellcasting' } },
+          damage: { parts: [{ number: 8, denomination: 6, types: ['fire'], custom: { enabled: false }, scaling: { mode: 'whole', number: 1 } }] },
+        },
+      },
+    },
+  });
+  assert.equal(damageScaling(fireball).mode, 'spellLevel');
+});
+
+test('description: dnd5e-only enrichers are rewritten, not shown as raw text', async () => {
+  const { translateDescription } = await import('../scripts/translate/description.js');
+
+  // a5e's condition enricher takes `id=`; exhaustion is not an a5e condition.
+  assert.equal(
+    translateDescription('knocked &Reference[condition=Prone]'),
+    'knocked [[/condition id=prone]]',
+  );
+  assert.equal(
+    translateDescription('&Reference[condition=Prone]{knocked down}'),
+    '[[/condition id=prone label="knocked down"]]',
+  );
+  assert.equal(translateDescription('&Reference[condition=Exhaustion]'), 'Exhaustion');
+
+  // Rules and skills were tooltips, not rolls: they become their words.
+  assert.equal(translateDescription('&Reference[rule=Cover]{half cover}'), 'half cover');
+  assert.equal(translateDescription('&Reference[skill=athletics]'), 'athletics');
+
+  // dnd5e's damage enricher becomes Foundry's own inline roll, which every
+  // system renders.
+  assert.equal(
+    translateDescription('takes [[/damage 1d10 type=fire]] damage'),
+    'takes [[/r 1d10 # fire]] damage',
+  );
+  assert.equal(
+    translateDescription('[[/damage 2d6]]{2d6 fire}'),
+    '[[/r 2d6]]{2d6 fire}',
+  );
+});
+
+test('description: a save enricher a5e already understands is left alone', async () => {
+  const { translateDescription } = await import('../scripts/translate/description.js');
+  const text = 'must make a [[/save ability=dex dc=15]] saving throw';
+  assert.equal(translateDescription(text), text);
+});
+
+test('description: the translated text is what the spell carries', () => {
+  const out = translateDocument('Item', {
+    ...cantrip({ mode: 'whole', number: 1 }),
+    system: {
+      ...cantrip({ mode: 'whole', number: 1 }).system,
+      description: { value: '<p>A creature hit is &Reference[condition=Prone]{knocked prone}.</p>' },
+      level: 0,
+      activities: {},
+    },
+  });
+  assert.ok(!out.system.description.includes('&Reference'));
+  assert.ok(out.system.description.includes('[[/condition id=prone'));
+});
+
+test('compendium import: the document is built from translated data', async () => {
+  // Plutonium imports to a compendium with `new Clazz(docData)` and
+  // `pack.importDocument(instance)`, never through UtilDocuments, so the data
+  // reached a5e's schema raw. `_getDocumentClass` is where the class comes from.
+  const { installPackImportTranslation } = await import('../scripts/bridge.js');
+
+  const built = [];
+  class FakeItem {
+    static metadata = { name: 'Item' };
+    static get implementation() { return FakeItem; }
+    constructor(data) { built.push(data); }
+  }
+  class ImporterBase { _getDocumentClass() { return FakeItem; } }
+  class ImporterActor extends ImporterBase {}
+
+  // Swapped in only after the last await: other tests run alongside this one
+  // and change the global while it waits.
+  const prevGame = globalThis.game;
+  globalThis.game = {
+    system: { id: 'a5e' },
+    settings: { get: (_m, key) => key === 'enabled' },
+    modules: { get: () => ({ api: { salphar: { ImporterActor } } }) },
+  };
+
+  try {
+    assert.equal(installPackImportTranslation(), true);
+
+    const Clazz = new ImporterActor()._getDocumentClass();
+    // eslint-disable-next-line no-new
+    new Clazz({ name: 'Fire Bolt', type: 'spell', system: { description: { value: 'x' }, level: 0, activities: {} } });
+
+    assert.equal(typeof built[0].system.description, 'string', 'a5e shape, not dnd5e');
+    assert.equal(Clazz.implementation, FakeItem, 'the world path is passed straight through');
+    assert.equal(new ImporterActor()._getDocumentClass(), Clazz, 'one proxy per class, not one per call');
+  } finally {
+    globalThis.game = prevGame;
+  }
+});
+
+
+test('migration: a cantrip imported before the fix is repaired, nothing else is touched', async () => {
+  // `spellLevel` scaling on a level-0 spell is always wrong — a cantrip cannot
+  // be cast from a higher slot — so it can be rewritten without guessing.
+  const { repairedCantripActions } = await import('../scripts/migrate.js');
+
+  const broken = {
+    type: 'spell',
+    system: {
+      level: 0,
+      actions: { a: { rolls: { r: { type: 'damage', formula: '1d10', scaling: { mode: 'spellLevel', formula: '1d10' } } } } },
+    },
+  };
+  assert.deepEqual(
+    repairedCantripActions(broken).a.rolls.r.scaling,
+    { mode: 'cantrip', formula: '1d10', config: { value: '1d10' } },
+  );
+  assert.equal(broken.system.actions.a.rolls.r.scaling.mode, 'spellLevel', 'works on a copy');
+
+  const levelled = { type: 'spell', system: { level: 3, actions: broken.system.actions } };
+  assert.equal(repairedCantripActions(levelled), null, 'a levelled spell really does scale by slot');
+
+  const fine = {
+    type: 'spell',
+    system: { level: 0, actions: { a: { rolls: { r: { type: 'damage', scaling: { mode: 'cantrip', formula: '1d10' } } } } } },
+  };
+  assert.equal(repairedCantripActions(fine), null, 'already right, no write');
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

@@ -4,6 +4,7 @@ import { repairUseConsumers } from './repair.js';
 import { addAsiGrants } from './asi-grants.js';
 import { backfillCommonManeuvers } from './maneuvers.js';
 import { publishAll } from './publish-content.js';
+import { translateDescription } from './translate/description.js';
 import { ID, error, log } from './util/log.js';
 
 // Content imported by an earlier version of this bridge is missing things the
@@ -12,7 +13,7 @@ import { ID, error, log } from './util/log.js';
 // level-up. All of it can be recovered from what is already on the documents —
 // so it is, once, rather than being left as homework.
 
-const CURRENT = 5;
+const CURRENT = 6;
 
 /** Every class and archetype this bridge imported, wherever it ended up. */
 function importedOrigins() {
@@ -98,12 +99,82 @@ async function repairResourceReferences() {
   return fixed;
 }
 
+// Cantrips imported before the fix carry `spellLevel` scaling, which a cantrip
+// never triggers — it cannot be cast from a higher slot — so their damage stayed
+// at first-level dice for good. That scaling on a level-0 spell is always wrong,
+// so it is rewritten into the shape a5e's own Fire Bolt carries. Descriptions
+// still holding dnd5e-only enrichers are rewritten the same way new imports are.
+export function repairedCantripActions(item) {
+  if (item.type !== 'spell' || Number(item.system?.level) !== 0) return null;
+
+  const actions = foundry.utils.deepClone(item.system?.actions ?? {});
+  let changed = false;
+
+  for (const action of Object.values(actions)) {
+    for (const roll of Object.values(action?.rolls ?? {})) {
+      if (roll?.scaling?.mode !== 'spellLevel') continue;
+      const step = String(roll.scaling.formula || '').trim();
+      roll.scaling = step ? { mode: 'cantrip', formula: step, config: { value: step } } : {};
+      changed = true;
+    }
+  }
+
+  return changed ? actions : null;
+}
+
+function repairedDescription(item) {
+  const text = item.system?.description;
+  if (typeof text !== 'string') return null;
+  const fixed = translateDescription(text);
+  return fixed === text ? null : fixed;
+}
+
+/** Imported items in the world, on actors, and in the module's own packs. */
+async function importedItemsEverywhere() {
+  const out = [...game.items];
+  for (const actor of game.actors) out.push(...actor.items);
+
+  for (const pack of game.packs) {
+    if (pack.documentName !== 'Item' || pack.locked) continue;
+    if (!pack.collection?.startsWith('world.plutonium-a5e-')) continue;
+    out.push(...await pack.getDocuments());
+  }
+
+  return out.filter((item) => item.flags?.[FLAG_SCOPE]);
+}
+
+async function repairSpellsAndText() {
+  let fixed = 0;
+
+  for (const item of await importedItemsEverywhere()) {
+    const update = {};
+
+    const actions = repairedCantripActions(item);
+    if (actions) update['system.actions'] = actions;
+
+    const description = repairedDescription(item);
+    if (description != null) update['system.description'] = description;
+
+    if (!Object.keys(update).length) continue;
+
+    try {
+      await item.update(update, { diff: false, recursive: false });
+      fixed += 1;
+    } catch (e) {
+      log(`Left "${item.name}" alone: ${e.message}`);
+    }
+  }
+
+  return fixed;
+}
+
 async function repairImportedContent() {
   const { tagged } = await adoptExistingFeatures();
   const { consumers } = await repairUseConsumers();
   const references = await repairResourceReferences();
   const asi = await addAsiGrants();
   const maneuvers = await backfillCommonManeuvers();
+  const spellsAndText = await repairSpellsAndText();
   const publishedContent = await publishAll();
 
   let wired = 0;
@@ -120,7 +191,7 @@ async function repairImportedContent() {
     }
   }
 
-  return { tagged, consumers, wired, references, asi, maneuvers, publishedContent };
+  return { tagged, consumers, wired, references, asi, maneuvers, spellsAndText, publishedContent };
 }
 
 /**
@@ -141,11 +212,11 @@ export async function runMigrations() {
 
   try {
     const {
-      tagged, consumers, wired, references, asi, maneuvers, publishedContent,
+      tagged, consumers, wired, references, asi, maneuvers, spellsAndText, publishedContent,
     } = await repairImportedContent();
     await game.settings.set(ID, 'migration', CURRENT);
 
-    if (tagged || consumers || wired || references || asi || maneuvers || publishedContent) {
+    if (tagged || consumers || wired || references || asi || maneuvers || spellsAndText || publishedContent) {
       const parts = [];
       if (tagged) parts.push(`tagged ${tagged} feature(s)`);
       if (consumers) parts.push(`restored ${consumers} charge consumer(s)`);
@@ -153,6 +224,7 @@ export async function runMigrations() {
       if (references) parts.push(`repointed ${references} scaling formula set(s)`);
       if (asi) parts.push(`gave ${asi} class(es) their ability score increases`);
       if (maneuvers) parts.push(`gave ${maneuvers} creature(s) the common manoeuvres`);
+      if (spellsAndText) parts.push(`fixed cantrip scaling or description text on ${spellsAndText} item(s)`);
       if (publishedContent) parts.push(`published ${publishedContent} item(s) to a compendium`);
       ui.notifications.info(`Plutonium ⇄ A5E: repaired earlier imports — ${parts.join(', ')}.`);
       log(`Migration complete: ${parts.join(', ')}.`);

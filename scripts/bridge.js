@@ -100,6 +100,101 @@ async function pointQuantityConsumersAtTheirItems(created) {
   }
 }
 
+// --- compendium imports ------------------------------------------------------
+//
+// Importing into a compendium does not go through `UtilDocuments` at all.
+// Plutonium builds the document itself and hands it to Foundry:
+//
+//   const Clazz = this._getDocumentClass();
+//   …
+//   const instance = new Clazz(docData);
+//   const imported = await importOpts.pack.importDocument(instance);
+//
+// and the same for a class (`new Clazz(clsData)`) and a subclass. The document
+// is constructed straight from dnd5e data, so a5e's schema quietly drops what it
+// does not know — activities, damage, scaling — and a dnd5e type such as "feat"
+// or "weapon" does not exist in a5e at all. That is why a compendium import
+// "almost did not work": spells arrived hollow and most other things not at all.
+//
+// By `importDocument` the data is already gone, so the construction itself is
+// intercepted. All three sites take their class from `_getDocumentClass`, which
+// only `ImporterBase` defines; it is handed a constructor that translates first.
+// Nothing else is affected: the world path goes through `Clazz.implementation`,
+// which the proxy passes straight through, and is translated where it always was.
+function packTranslatingClass(Clazz) {
+  return new Proxy(Clazz, {
+    construct(target, [data, context]) {
+      const name = target.metadata?.name;
+      const translated = enabled() ? translateDocument(name, data) : data;
+      packImportSeen = true;
+      // Built from the real class, not the proxy, so a5e's own per-type
+      // dispatch picks the right document class for the translated type.
+      return Reflect.construct(target, [translated, context], target);
+    },
+  });
+}
+
+let packPathInstalled = false;
+
+// Set when a document was built for a compendium, so the pack indexes can be
+// brought up to date once the import finishes rather than after every entry.
+let packImportSeen = false;
+
+/** Whether an import wrote to a compendium since the last call. */
+export function takePackImportSeen() {
+  const seen = packImportSeen;
+  packImportSeen = false;
+  return seen;
+}
+
+export function installPackImportTranslation() {
+  if (packPathInstalled) return true;
+
+  const api = game.modules.get('plutonium')?.api ?? globalThis.plutonium;
+  let proto = api?.salphar?.ImporterActor?.prototype;
+  while (proto && !Object.prototype.hasOwnProperty.call(proto, '_getDocumentClass')) {
+    proto = Object.getPrototypeOf(proto);
+  }
+  if (!proto) {
+    warn('Could not reach Plutonium\'s importer base — compendium imports will not be converted.');
+    return false;
+  }
+
+  const orig = proto._getDocumentClass;
+  const proxies = new WeakMap();
+
+  proto._getDocumentClass = function _getDocumentClass(...args) {
+    const Clazz = orig.apply(this, args);
+    if (!Clazz || (typeof Clazz !== 'function')) return Clazz;
+    if (!proxies.has(Clazz)) proxies.set(Clazz, packTranslatingClass(Clazz));
+    return proxies.get(Clazz);
+  };
+
+  packPathInstalled = true;
+  debug('Compendium import path wrapped.');
+  return true;
+}
+
+// Re-importing an entry Plutonium already has hands the *whole* dnd5e document
+// to an update, for the world and a compendium alike:
+//
+//   await UtilDocuments.pUpdateDocument(duplicateMeta.existing, docData);
+//
+// A partial update is pruned key by key, which is right for the Charactermancer
+// but loses everything here. A whole item is recognisable by its dnd5e
+// description — an object with a `value`, where a5e's is a plain string — and
+// is translated as a whole instead. Its type is left out: a document's type
+// cannot change, and the one it has is already the a5e one.
+function asUpdate(doc, docUpdate) {
+  if (doc?.documentName !== 'Item') return docUpdate;
+  if (!docUpdate || typeof docUpdate !== 'object' || !('type' in docUpdate)) return docUpdate;
+  if (typeof docUpdate.system?.description !== 'object') return docUpdate;
+
+  const translated = translateDocument('Item', docUpdate, doc.parent ?? null);
+  const { _id, type, ...rest } = translated;
+  return rest;
+}
+
 function enabled() {
   if (game.system.id !== 'a5e') return false;
   try {
@@ -110,7 +205,10 @@ function enabled() {
 }
 
 export function installPlutoniumBridge() {
-  if (patched) return true;
+  if (patched) {
+    installPackImportTranslation();
+    return true;
+  }
 
   const UtilDocuments = getUtilDocuments();
   if (!UtilDocuments) {
@@ -169,7 +267,7 @@ export function installPlutoniumBridge() {
 
   UtilDocuments.pUpdateDocument = async function pUpdateDocument(doc, docUpdate, opts) {
     if (!enabled()) return origUpdate(doc, docUpdate, opts);
-    return origUpdate(doc, pruneUpdate(doc, docUpdate), opts);
+    return origUpdate(doc, pruneUpdate(doc, asUpdate(doc, docUpdate)), opts);
   };
 
   if (origUpdateEmbedded) {
@@ -186,6 +284,7 @@ export function installPlutoniumBridge() {
   }
 
   patched = true;
+  installPackImportTranslation();
   log('Bridge installed — Plutonium imports will be converted to a5e.');
   return true;
 }

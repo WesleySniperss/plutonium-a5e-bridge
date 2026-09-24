@@ -93,11 +93,32 @@ function damageTypeOf(part) {
   return DAMAGE_TYPES.has(first) ? first : '';
 }
 
-/** dnd5e scaling block -> a5e roll scaling. Only per-slot-level scaling survives. */
-function scalingOf(part, { isSpell }) {
+/** dnd5e scaling block -> a5e roll scaling. */
+function scalingOf(part, { isSpell, isCantrip = false }) {
   const mode = part?.scaling?.mode;
   const number = Number(part?.scaling?.number) || 0;
   if (!mode || !number) return {};
+
+  // A cantrip cannot be cast from a higher slot; it grows with the caster.
+  // dnd5e says both with the same `mode: "whole"`, and decides which it means by
+  // the spell being level 0 — Plutonium emits exactly that for every dice
+  // cantrip it builds from 5etools `scalingLevelDice`:
+  //
+  //   scaling: { mode: "whole", number: 1 },
+  //
+  // Read as slot scaling it became `spellLevel`, which a cantrip never
+  // triggers, so the damage never grew. a5e writes its own Fire Bolt as
+  //
+  //   { mode: "cantrip", formula: "1d10", config: { value: "1d10" } }
+  //
+  // and a cantrip whose damage is not dice — Shillelagh, Eldritch Blast —
+  // arrives with `mode: ""` and is left unscaled, as a5e leaves its own.
+  if (isCantrip) {
+    const denom = Number(part.denomination) || 0;
+    if (!denom) return {};
+    const step = `${number}d${denom}`;
+    return { mode: 'cantrip', formula: step, config: { value: step } };
+  }
 
   if (mode === 'whole' || mode === 'half') {
     return isSpell
@@ -157,7 +178,7 @@ function attackBonusOf(attack, ability, ctx) {
 }
 
 function addDamageRolls(rolls, parts, {
-  isSpell, canCrit = true, critBonus = '', impliedAbility = null, magicBonus = 0,
+  isSpell, isCantrip = false, canCrit = true, critBonus = '', impliedAbility = null, magicBonus = 0,
 }) {
   (parts ?? []).forEach((part) => {
     let formula = damageFormula(part);
@@ -177,12 +198,12 @@ function addDamageRolls(rolls, parts, {
       damageType: damageTypeOf(part),
       canCrit,
       critBonus: critBonus ?? '',
-      scaling: scalingOf(part, { isSpell }),
+      scaling: scalingOf(part, { isSpell, isCantrip }),
     };
   });
 }
 
-function addHealingRoll(rolls, healing, { isSpell }) {
+function addHealingRoll(rolls, healing, { isSpell, isCantrip = false }) {
   const formula = translateFormula(damageFormula(healing));
   if (!formula) return;
   const types = healing?.types ?? [];
@@ -192,7 +213,7 @@ function addHealingRoll(rolls, healing, { isSpell }) {
     type: 'healing',
     formula,
     healingType: isTemp ? 'temporaryHealing' : 'healing',
-    scaling: scalingOf(healing, { isSpell }),
+    scaling: scalingOf(healing, { isSpell, isCantrip }),
   };
 }
 
@@ -422,6 +443,7 @@ export function activityToAction(activity, opts = {}) {
   if (!activity) return null;
 
   const { isSpell = false, itemName = '', img = '' } = opts;
+  const isCantrip = isSpell && Number(opts.spellLevel) === 0;
   const type = activity.type;
   // Cast/summon/enchant/order lean on dnd5e machinery with no a5e counterpart.
   // Dropping them silently would lose the text, so they become plain actions.
@@ -442,6 +464,7 @@ export function activityToAction(activity, opts = {}) {
       };
       addDamageRolls(rolls, activity.damage?.parts, {
         isSpell,
+        isCantrip,
         critBonus: activity.damage?.critical?.bonus ?? '',
         impliedAbility: opts.isWeapon ? ability : null,
         magicBonus: opts.magicBonus,
@@ -455,6 +478,7 @@ export function activityToAction(activity, opts = {}) {
       if (opts.versatileDamage) {
         addDamageRolls(rolls, [opts.versatileDamage], {
           isSpell,
+          isCantrip,
           critBonus: activity.damage?.critical?.bonus ?? '',
           impliedAbility: opts.isWeapon ? ability : null,
           magicBonus: opts.magicBonus,
@@ -470,13 +494,14 @@ export function activityToAction(activity, opts = {}) {
         `${activity.description?.chatFlavor ?? ''} ${opts.description ?? ''}`,
       );
       // Nothing crits on a saving throw.
-      addDamageRolls(rolls, activity.damage?.parts, { isSpell, canCrit: false });
+      addDamageRolls(rolls, activity.damage?.parts, { isSpell, isCantrip, canCrit: false });
       break;
     }
 
     case 'damage': {
       addDamageRolls(rolls, activity.damage?.parts, {
         isSpell,
+        isCantrip,
         canCrit: activity.damage?.critical?.allow !== false,
         critBonus: activity.damage?.critical?.bonus ?? '',
       });
@@ -484,7 +509,7 @@ export function activityToAction(activity, opts = {}) {
     }
 
     case 'heal': {
-      addHealingRoll(rolls, activity.healing, { isSpell });
+      addHealingRoll(rolls, activity.healing, { isSpell, isCantrip });
       break;
     }
 
