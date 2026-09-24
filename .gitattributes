@@ -1,2 +1,3 @@
-# Shell scripts run on Linux servers; a CRLF makes bash fail with $''.
+# Shell scripts run on Linux servers, where a CRLF line ending makes bash stop
+# at the first line on the stray carriage return.
 *.sh text eol=lf
