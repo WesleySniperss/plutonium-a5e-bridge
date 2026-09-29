@@ -5,7 +5,7 @@ import { addAsiGrants } from './asi-grants.js';
 import { backfillCommonManeuvers } from './maneuvers.js';
 import { publishAll } from './publish-content.js';
 import { translateDescription } from './translate/description.js';
-import { ID, error, log } from './util/log.js';
+import { ID, error, log, warn } from './util/log.js';
 
 // Content imported by an earlier version of this bridge is missing things the
 // current one writes at import time: the tag that says a feature belongs to a
@@ -13,7 +13,47 @@ import { ID, error, log } from './util/log.js';
 // level-up. All of it can be recovered from what is already on the documents —
 // so it is, once, rather than being left as homework.
 
-const CURRENT = 6;
+const CURRENT = 7;
+// What a step could not touch, named so the GM can find it. Kept for one run.
+const skipped = [];
+
+// An ordinary, recursive update — never `recursive: false`. In Foundry 14 that
+// option turns every root key into a ForcedReplacement:
+//
+//   if ( options.recursive === false ) DataModel.#performNonRecursiveUpdate(changes);
+//
+// so `{ 'system.actions': … }` replaced the item's *whole* `system` with just its
+// actions, which validation then rejects — "may not be undefined" for every
+// other field. The keys written here are always the ones already present, so a
+// recursive merge gives the same result without touching anything else.
+//
+// One document that cannot be written must not stop the rest: a single broken
+// actor used to abort the whole migration, which then ran again, and failed
+// again, on every load.
+async function safeUpdate(doc, update) {
+  try {
+    await doc.update(update);
+    return true;
+  } catch (e) {
+    const where = doc.parent ? `"${doc.name}" on "${doc.parent.name}"` : `"${doc.name}"`;
+    skipped.push(where);
+    log(`Could not update ${where}: ${String(e.message).split('\n')[0]}`);
+    return false;
+  }
+}
+
+// Each repair runs on its own: one that fails must not cost the others, nor
+// keep the migration from being recorded as done.
+async function step(label, fn, fallback = 0) {
+  try {
+    return await fn();
+  } catch (e) {
+    skipped.push(label);
+    error(`Migration step "${label}" failed; the others still ran.`, e);
+    return fallback;
+  }
+}
+
 
 /** Every class and archetype this bridge imported, wherever it ended up. */
 function importedOrigins() {
@@ -89,7 +129,7 @@ async function repairResourceReferences() {
     const repointed = repointFormulas(actions, slugs);
     if (JSON.stringify(repointed) === JSON.stringify(actions)) return;
 
-    await item.update({ 'system.actions': repointed }, { diff: false, recursive: false });
+    await safeUpdate(item, { 'system.actions': repointed });
     fixed += 1;
   };
 
@@ -157,25 +197,20 @@ async function repairSpellsAndText() {
 
     if (!Object.keys(update).length) continue;
 
-    try {
-      await item.update(update, { diff: false, recursive: false });
-      fixed += 1;
-    } catch (e) {
-      log(`Left "${item.name}" alone: ${e.message}`);
-    }
+    if (await safeUpdate(item, update)) fixed += 1;
   }
 
   return fixed;
 }
 
 async function repairImportedContent() {
-  const { tagged } = await adoptExistingFeatures();
-  const { consumers } = await repairUseConsumers();
-  const references = await repairResourceReferences();
-  const asi = await addAsiGrants();
-  const maneuvers = await backfillCommonManeuvers();
-  const spellsAndText = await repairSpellsAndText();
-  const publishedContent = await publishAll();
+  const { tagged } = await step('tagging features', adoptExistingFeatures, { tagged: 0 });
+  const { consumers } = await step('charge consumers', repairUseConsumers, { consumers: 0 });
+  const references = await step('scaling formulas', repairResourceReferences);
+  const asi = await step('ability score increases', addAsiGrants);
+  const maneuvers = await step('common manoeuvres', backfillCommonManeuvers);
+  const spellsAndText = await step('cantrips and descriptions', repairSpellsAndText);
+  const publishedContent = await step('publishing', publishAll);
 
   let wired = 0;
   for (const owner of importedOrigins()) {
@@ -230,6 +265,15 @@ export async function runMigrations() {
       log(`Migration complete: ${parts.join(', ')}.`);
     } else {
       log('Migration found nothing to repair.');
+    }
+
+    if (skipped.length) {
+      const list = [...new Set(skipped)];
+      warn(`Migration left ${list.length} thing(s) alone: ${list.join(', ')}.`);
+      ui.notifications.warn(
+        `Plutonium ⇄ A5E: could not update ${list.length} item(s) or step(s) — ${list.slice(0, 5).join(', ')}`
+        + `${list.length > 5 ? ', …' : ''}. The rest was repaired; see the console.`,
+      );
     }
   } catch (e) {
     error('Could not repair earlier imports. Run api.diagnose() for the details.', e);

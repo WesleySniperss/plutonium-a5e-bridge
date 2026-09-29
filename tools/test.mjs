@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fakeSchema, installFoundryStub } from './foundry-stub.mjs';
 
@@ -2571,6 +2571,37 @@ test('compendium class: a document created in a pack reaches the linker', async 
     globalThis.Hooks = prevHooks;
     globalThis.game = prevGame;
   }
+});
+
+
+test('updates: `recursive: false` only where the whole document is written', () => {
+  // Foundry 14 turns every root key of a non-recursive update into a
+  // ForcedReplacement, so `{ 'system.actions': … }` replaced an item's whole
+  // `system` with just its actions and validation rejected it — "may not be
+  // undefined" for every other field. That aborted the migration on every load.
+  // Checked against Foundry's own DataModel: a partial system is rejected, a
+  // whole one is written. So the option is allowed only where the full document
+  // goes in, and every such place is listed here with why.
+  const allowed = {
+    'grant-linker.js': 'publish() overwrites a pack copy with item.toObject(), a whole document',
+  };
+
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const path = resolve(dir, entry);
+      if (statSync(path).isDirectory()) { walk(path); continue; }
+      if (!path.endsWith('.js')) continue;
+      readFileSync(path, 'utf8').split('\n').forEach((line, i) => {
+        if (!/recursive:\s*false/.test(line) || /^\s*\/\//.test(line)) return;
+        const rel = relative(SCRIPTS, path).split(sep).join('/');
+        if (!allowed[rel]) offenders.push(`${rel}:${i + 1}`);
+      });
+    }
+  };
+  walk(SCRIPTS);
+
+  assert.deepEqual(offenders, [], `non-recursive update outside the allowed places: ${offenders.join(', ')}`);
 });
 
 
