@@ -2605,6 +2605,96 @@ test('updates: `recursive: false` only where the whole document is written', () 
 });
 
 
+// --- range and duration live on the item -------------------------------------
+
+// Shaped the way Plutonium's DocumentBuilderItemSpell builds a spell: range,
+// duration, activation and target on the item, and an activity that inherits
+// them because it does not say `override`.
+const pluSpell = (extra = {}) => ({
+  name: 'Fireball',
+  type: 'spell',
+  system: {
+    description: { value: '<p>…</p>' },
+    level: 3,
+    school: 'evo',
+    properties: ['vocal', 'somatic', 'material'],
+    range: { value: 150, units: 'ft' },
+    duration: { value: '', units: 'inst' },
+    activation: { type: 'action', value: 1 },
+    target: { template: { type: 'sphere', size: '20', units: 'ft', count: '1' }, affects: { type: 'creature' } },
+    activities: {
+      a: {
+        _id: 'a',
+        type: 'save',
+        save: { ability: ['dex'], dc: { calculation: 'spellcasting' } },
+        damage: { parts: [{ number: 8, denomination: 6, types: ['fire'], custom: { enabled: false }, scaling: { mode: 'whole', number: 1 } }] },
+      },
+    },
+    ...extra,
+  },
+});
+
+test('spell: range, duration and area come from the item the activity inherits from', () => {
+  const action = first(translateDocument('Item', pluSpell()).system.actions);
+
+  assert.deepEqual(Object.values(action.ranges), [{ range: 150, unit: 'feet' }]);
+  assert.equal(action.duration.unit, 'instantaneous');
+  assert.equal(action.activation.type, 'action');
+  assert.equal(action.area.shape, 'sphere');
+  assert.equal(action.area.radius, 20);
+});
+
+test('spell: an activity that overrides keeps its own', () => {
+  const action = first(translateDocument('Item', pluSpell({
+    activities: {
+      a: { _id: 'a', type: 'utility', range: { override: true, value: 30, units: 'ft' }, duration: { override: true, value: '1', units: 'minute' } },
+    },
+  })).system.actions);
+
+  assert.deepEqual(Object.values(action.ranges), [{ range: 'short', unit: 'feet' }]);
+  assert.equal(action.duration.unit, 'minute');
+});
+
+test('spell: one with no activity still gets an action to carry its range and duration', () => {
+  // a5e shows range and duration on an action, and every spell it ships has at
+  // least one; without it they had nowhere to appear.
+  const out = translateDocument('Item', pluSpell({
+    properties: ['vocal', 'somatic', 'concentration'],
+    range: { units: 'self' },
+    duration: { value: '10', units: 'minute' },
+    target: { template: { type: 'radius', size: '30', units: 'ft' } },
+    activities: {},
+  }));
+
+  const action = first(out.system.actions);
+  assert.ok(action, 'an action exists');
+  assert.equal(action.default, true);
+  assert.deepEqual(Object.values(action.ranges), [{ range: 'self', unit: '' }]);
+  assert.equal(action.duration.unit, 'minute');
+  assert.equal(action.duration.value, '10');
+  assert.equal(action.duration.concentration, true, 'concentration is a spell property in dnd5e');
+  assert.equal(action.area.shape, 'emanation');
+});
+
+test('weapon: long range is a second entry, the way a5e writes its longbow', () => {
+  const longbow = translateDocument('Item', {
+    name: 'Longbow',
+    type: 'weapon',
+    system: {
+      description: { value: '<p>…</p>' },
+      properties: ['amm', 'two'],
+      range: { value: 150, long: 600, units: 'ft' },
+      activities: { a: { _id: 'a', type: 'attack', attack: { type: { value: 'ranged' } }, damage: { parts: [{ number: 1, denomination: 8, types: ['piercing'], custom: { enabled: false } }] } } },
+    },
+  });
+
+  assert.deepEqual(
+    Object.values(first(longbow.system.actions).ranges),
+    [{ range: 150, unit: 'feet' }, { range: 600, unit: 'feet' }],
+  );
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

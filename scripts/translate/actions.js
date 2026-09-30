@@ -323,7 +323,37 @@ function rangeRecord(range) {
   if (!value) return {};
 
   const named = unit === 'feet' ? NAMED_FEET_RANGES[value] : null;
-  return { [id()]: { range: named ?? value, unit: named ? 'feet' : unit } };
+  const out = { [id()]: { range: named ?? value, unit: named ? 'feet' : unit } };
+
+  // A weapon's long range is a second entry in a5e, not a field of the first:
+  // its own longbow carries [{ range: 150 }, { range: 600 }].
+  const long = Number(range.long);
+  if (long && long > value) out[id()] = { range: long, unit };
+
+  return out;
+}
+
+// dnd5e 5.x keeps a spell's activation, duration, range and target on the item,
+// and its activities inherit them unless they say `override`. Plutonium builds
+// spells exactly that way:
+//
+//   range: {value: state.rangeShort, units: state.rangeUnits, long: state.rangeLong},
+//   duration: { value: state.durationValue, units: state.durationUnits },
+//
+// so reading the activity alone found nothing, and imported spells arrived with
+// no range, no duration and no area. The same goes for a weapon's range.
+const HAS_CONTENT = {
+  activation: (v) => !!v?.type,
+  duration: (v) => !!v?.units,
+  range: (v) => !!v?.units,
+  target: (v) => !!(v?.template?.type || v?.affects?.type),
+};
+
+function effective(activity, inherited, key) {
+  const own = activity?.[key];
+  if (own?.override) return own;
+  const fromItem = inherited?.[key];
+  return HAS_CONTENT[key](fromItem) ? fromItem : own;
 }
 
 function areaOf(target) {
@@ -539,9 +569,14 @@ export function activityToAction(activity, opts = {}) {
       break;
   }
 
-  const activationType = pick(ACTIVATION, activity.activation?.type, 'none');
-  const area = areaOf(activity.target);
-  const target = targetOf(activity.target);
+  const activation = effective(activity, opts.inherit, 'activation');
+  const duration = effective(activity, opts.inherit, 'duration');
+  const range = effective(activity, opts.inherit, 'range');
+  const targeting = effective(activity, opts.inherit, 'target');
+
+  const activationType = pick(ACTIVATION, activation?.type, 'none');
+  const area = areaOf(targeting);
+  const target = targetOf(targeting);
 
   const action = {
     name: activity.name || itemName || 'Action',
@@ -551,15 +586,16 @@ export function activityToAction(activity, opts = {}) {
     default: false,
     activation: {
       type: activationType,
-      cost: Number(activity.activation?.value) || (activationType === 'none' ? 0 : 1),
-      reactionTrigger: String(activity.activation?.condition ?? ''),
+      cost: Number(activation?.value) || (activationType === 'none' ? 0 : 1),
+      reactionTrigger: String(activation?.condition ?? ''),
     },
     duration: {
-      unit: pick(DURATION_UNITS, activity.duration?.units, ''),
-      value: String(activity.duration?.value ?? ''),
-      concentration: !!activity.duration?.concentration,
+      unit: pick(DURATION_UNITS, duration?.units, ''),
+      value: String(duration?.value ?? ''),
+      // Concentration is a spell property in dnd5e, not only a duration flag.
+      concentration: !!(duration?.concentration || opts.concentration),
     },
-    ranges: rangeRecord(activity.range),
+    ranges: rangeRecord(range),
     rolls,
     prompts,
     consumers: {},
@@ -589,7 +625,22 @@ export function activityToAction(activity, opts = {}) {
 export function activitiesToActions(activities, opts = {}) {
   const actions = {};
   const entries = Object.entries(activities ?? {});
-  if (!entries.length) return actions;
+
+  // A spell with no activity at all still has a range and a duration of its
+  // own, and a5e shows those on an action — every spell it ships has at least
+  // one, "Cast Spell". Without it they had nowhere to appear.
+  if (!entries.length) {
+    const hasOwn = opts.isSpell && Object.keys(HAS_CONTENT)
+      .some((key) => HAS_CONTENT[key](opts.inherit?.[key]));
+    if (!hasOwn) return actions;
+
+    const cast = activityToAction({ type: 'utility', name: 'Cast Spell' }, opts);
+    if (cast) {
+      cast.default = true;
+      actions[id()] = cast;
+    }
+    return actions;
+  }
 
   entries.forEach(([, activity]) => {
     const action = activityToAction(activity, opts);

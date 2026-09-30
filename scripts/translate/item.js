@@ -52,6 +52,17 @@ function descriptionOf(system) {
   return translateDescription(system?.description?.value ?? '');
 }
 
+// What an activity inherits from its item unless it overrides it. dnd5e keeps
+// these on the item for spells, and a weapon's range there too.
+function inheritedFrom(system) {
+  return {
+    activation: system?.activation,
+    duration: system?.duration,
+    range: system?.range,
+    target: system?.target,
+  };
+}
+
 // dnd5e 5.x source is an object; a5e wants one string.
 function sourceOf(system) {
   const src = system?.source;
@@ -179,6 +190,7 @@ function toObject(data, ctx) {
       img: data.img,
       description: descriptionOf(system),
       ...ctx,
+      inherit: inheritedFrom(system),
       isWeapon: kind.objectType === 'weapon',
       magicBonus: Number(system.magicalBonus) || 0,
       // Lives on the item in dnd5e, not the activity, so the action builder
@@ -276,6 +288,8 @@ function toSpell(data, ctx) {
       description: descriptionOf(system),
       isSpell: true,
       spellLevel: Number(system.level) || 0,
+      inherit: inheritedFrom(system),
+      concentration: flags.has('concentration'),
       ...ctx,
     }),
   };
@@ -343,6 +357,7 @@ function toFeature(data, ctx) {
       img: data.img,
       description: descriptionOf(system),
       ...ctx,
+      inherit: inheritedFrom(system),
     }),
   };
 
