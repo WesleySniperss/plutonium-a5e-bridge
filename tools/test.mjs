@@ -1518,6 +1518,18 @@ test("bridge: Plutonium can still find the item it asked us to create", async ()
 
     // The document really was created from the translated data, not the raw.
     assert.equal(embeds[0].document.name, classItemToCreate.name);
+
+    // Effects Plutonium puts straight onto the character after an import go
+    // through the same door, and come out in a5e's words.
+    const effects = await UtilDocuments.pCreateEmbeddedDocuments(
+      actor,
+      [{ name: 'Darkvision', changes: [{ key: 'system.attributes.senses.darkvision', mode: 4, value: 60 }] }],
+      { ClsEmbed: { metadata: { name: 'ActiveEffect' } } },
+    );
+    assert.deepEqual(effects[0].raw.system.changes.map((c) => [c.key, c.type, c.value]), [
+      ['system.attributes.senses.darkvision.distance', 'upgrade', 60],
+    ]);
+    assert.equal(effects[0].raw.system.effectType, 'passive', 'on the actor itself, simply in force');
   } finally {
     globalThis.game = prevGame;
   }
@@ -2692,6 +2704,516 @@ test('weapon: long range is a second entry, the way a5e writes its longbow', () 
     Object.values(first(longbow.system.actions).ranges),
     [{ range: 150, unit: 'feet' }, { range: 600, unit: 'feet' }],
   );
+});
+
+
+// --- dnd5e formulas in a5e: the roll-data names ------------------------------
+
+// Foundry's own substitution, as `Roll.parse` performs it — an unknown name
+// becomes "0", an object prints through its own toString. Reproduced so the
+// tests see exactly what a roll would.
+function substitute(formula, data) {
+  return formula.replace(/@([a-z.0-9_-]+)/gi, (match, term) => {
+    const value = term.split('.').reduce((o, k) => (o == null ? o : o[k]), data);
+    if (value == null) return '0';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'boolean') return String(Number(value));
+    if (typeof value.toString === 'function' && value.toString !== Object.prototype.toString) return value.toString();
+    return match;
+  });
+}
+
+// The number of dice a "(expr)dN" formula rolls once its data is substituted.
+function diceCount(formula, data) {
+  const replaced = substitute(formula, data);
+  const expr = replaced.slice(0, replaced.lastIndexOf('d')).replace(/floor/g, 'Math.floor');
+  // eslint-disable-next-line no-new-func
+  return Function(`return (${expr});`)();
+}
+
+const fakeCharacter = (level, extra = {}) => ({
+  type: 'character',
+  name: 'PC',
+  levels: { character: level },
+  system: { details: { level: 1 }, attributes: { hitDice: {} } },
+  items: [],
+  ...extra,
+});
+
+const fakeNpc = (casterLevel, cr = 1) => ({
+  type: 'npc',
+  name: 'NPC',
+  system: { details: { cr }, attributes: { casterLevel, hitDice: { d8: { current: 4, total: 4 } } } },
+  items: [],
+});
+
+// Exactly what Plutonium ships for Booming Blade in data/spells/foundry.json.
+const BOOMING_BLADE = '(floor(((@details.level + @attributes.spell.level) + 1) / 6))d8[on hit]';
+
+test('roll data: Booming Blade rolls the right dice for a character at every tier', async () => {
+  const { addDnd5eAliases } = await import('../scripts/roll-data-shim.js');
+  const cases = { 1: 0, 4: 0, 5: 1, 10: 1, 11: 2, 16: 2, 17: 3, 20: 3 };
+
+  for (const [level, dice] of Object.entries(cases)) {
+    const rd = addDnd5eAliases(fakeCharacter(Number(level)), null, { level: Number(level), prof: 3 });
+    assert.equal(diceCount(BOOMING_BLADE, rd), dice, `level ${level}`);
+  }
+});
+
+test('roll data: Booming Blade reads an NPC\'s spellcasting level instead', async () => {
+  const { addDnd5eAliases } = await import('../scripts/roll-data-shim.js');
+  const rd = addDnd5eAliases(fakeNpc(11), null, { prof: 4 });
+  assert.equal(diceCount(BOOMING_BLADE, rd), 2);
+});
+
+test('roll data: without the names, Foundry would have read it as 0d8', () => {
+  // The failure being fixed, made visible: nothing in a5e's own roll data
+  // answers to these dnd5e names, so Foundry substitutes zero.
+  assert.equal(diceCount(BOOMING_BLADE, { level: 17 }), 0);
+});
+
+test('roll data: cantrip @scaling follows dnd5e 6 — floor((level + 1) / 6)', async () => {
+  const { addDnd5eAliases } = await import('../scripts/roll-data-shim.js');
+  const cantrip = { type: 'spell', system: { level: 0 } };
+  const at = (level) => addDnd5eAliases(fakeCharacter(level), cantrip, { level }).scaling;
+  assert.deepEqual([at(1), at(5), at(11), at(17)], [0, 1, 2, 3]);
+
+  const levelled = { type: 'spell', system: { level: 3 } };
+  assert.equal(addDnd5eAliases(fakeCharacter(9), levelled, { level: 9 }).scaling, 0);
+});
+
+test('roll data: @mod is the ability of what is rolling', async () => {
+  const { addDnd5eAliases } = await import('../scripts/roll-data-shim.js');
+  const rd = { level: 5, spellcasting: { mod: 4 }, abilities: { dex: { mod: 3 }, str: { mod: 1 } } };
+
+  const spell = { type: 'spell', system: { level: 1 } };
+  assert.equal(addDnd5eAliases(fakeCharacter(5), spell, { ...rd }).mod, 4);
+
+  const unarmed = { type: 'feature', system: { actions: { a: { rolls: { r: { type: 'attack', ability: 'dex' } } } } } };
+  assert.equal(addDnd5eAliases(fakeCharacter(5), unarmed, { ...rd }).mod, 3);
+});
+
+test('roll data: @classes.<dnd5e id>.levels reaches a class a5e calls something else', async () => {
+  // a5e calls the barbarian "berserker"; dnd5e formulas still say barbarian.
+  const { addDnd5eAliases } = await import('../scripts/roll-data-shim.js');
+  const barbarian = { type: 'class', name: 'Berserker', slug: 'berserker', system: { slug: 'berserker' }, flags: {} };
+  const rd = addDnd5eAliases(fakeCharacter(7, { items: [barbarian] }), null, {
+    level: 7,
+    classes: { berserker: { level: 7, resources: {} } },
+  });
+
+  assert.equal(rd.classes.berserker.levels, 7);
+  assert.equal(rd.classes.barbarian.levels, 7);
+  assert.equal(substitute('@classes.barbarian.levels', rd), '7');
+});
+
+test('roll data: @scale values print whole and expose .die / .number / .faces', async () => {
+  const { addDnd5eAliases } = await import('../scripts/roll-data-shim.js');
+  const monk = {
+    type: 'class', name: 'Monk', slug: 'adept', system: { slug: 'adept' },
+    flags: { 'plutonium-a5e': { class: { classIdentifier: 'monk' } } },
+    resources: { rollData: { die: '1d8' } },
+  };
+  const rd = addDnd5eAliases(fakeCharacter(5, { items: [monk] }), null, { level: 5, classes: {} });
+
+  assert.equal(substitute('@scale.monk.die + 3', rd), '1d8 + 3');
+  assert.equal(substitute('2@scale.monk.die.die', rd), '2d8');
+  assert.equal(substitute('@scale.monk.die.number', rd), '1');
+});
+
+test('roll data: nothing shared with the actor is written to', async () => {
+  // a5e's roll data is a shallow copy of system data; adding a name to one of
+  // its branches in place would write into the actor itself.
+  const { addDnd5eAliases } = await import('../scripts/roll-data-shim.js');
+  const details = { level: 1 };
+  const attributes = { movement: { walk: { distance: 30, unit: 'feet' } } };
+  const actor = fakeCharacter(5);
+  addDnd5eAliases(actor, null, { level: 5, details, attributes });
+
+  assert.deepEqual(details, { level: 1 });
+  assert.deepEqual(Object.keys(attributes), ['movement']);
+  assert.equal(typeof attributes.movement.walk.toString, 'function');
+  assert.equal(attributes.movement.walk.toString(), '[object Object]', 'the original is untouched');
+});
+
+test('roll data: a speed still reads as a number in a dnd5e formula', async () => {
+  const { addDnd5eAliases } = await import('../scripts/roll-data-shim.js');
+  const rd = addDnd5eAliases(fakeCharacter(5), null, {
+    level: 5, attributes: { movement: { walk: { distance: 30, unit: 'feet' } } },
+  });
+  assert.equal(substitute('@attributes.movement.walk / 2', rd), '30 / 2');
+  assert.equal(substitute('@attributes.movement.walk.distance', rd), '30', 'a5e\'s own path still works');
+});
+
+
+// --- active effects ----------------------------------------------------------
+
+const byKey = (effect, key) => effect.system.changes.filter((c) => c.key === key);
+
+test('effects: Bane goes to its targets, not its caster, through the action', () => {
+  const bane = translateDocument('Item', {
+    name: 'Bane',
+    type: 'spell',
+    system: {
+      description: { value: '<p>…</p>' }, level: 1, school: 'enc', properties: ['vocal', 'somatic', 'material', 'concentration'],
+      range: { value: 30, units: 'ft' }, duration: { value: '1', units: 'minute' }, activation: { type: 'action', value: 1 },
+      activities: { a: { _id: 'a', type: 'save', save: { ability: ['cha'], dc: { calculation: 'spellcasting' } }, effects: [{ _id: 'baneeffect000000' }] } },
+    },
+    effects: [{
+      _id: 'baneeffect000000',
+      name: 'Bane',
+      transfer: false,
+      changes: [
+        { key: 'system.bonuses.abilities.save', mode: 2, value: '-1d4' },
+        { key: 'system.bonuses.mwak.attack', mode: 2, value: '-1d4' },
+        { key: 'system.bonuses.rsak.attack', mode: 2, value: '-1d4' },
+      ],
+    }],
+  });
+
+  const [effect] = bane.effects;
+  // a5e's default is "passive", which applies an item effect to its owner.
+  assert.equal(effect.system.effectType, 'onUse');
+  assert.equal(effect.system.applyToSelf, false, 'a 30-foot spell is aimed at others');
+  assert.equal(effect.transfer, false);
+  assert.equal(effect.changes, undefined, 'no dnd5e changes left for Foundry to migrate over ours');
+
+  // a5e's BonusesManager reads `formula` and `context` off an object; a JSON
+  // string has neither and would never apply.
+  const [save] = byKey(effect, 'flags.a5e.effects.bonuses.abilities');
+  assert.equal(save.type, 'custom');
+  assert.equal(save.value.formula, '-1d4');
+  assert.deepEqual(save.value.context.types, ['save']);
+  assert.equal(save.value.context.abilities.length, 6, 'a global bonus names every ability');
+
+  const attacks = byKey(effect, 'flags.a5e.effects.bonuses.attacks').map((c) => c.value.context.attackTypes[0]);
+  assert.deepEqual(attacks.sort(), ['meleeWeaponAttack', 'rangedSpellAttack']);
+
+  assert.deepEqual(first(bane.system.actions).effects, ['baneeffect000000'], 'the action delivers it');
+});
+
+test('effects: Rage is applied to the barbarian by its own activity', () => {
+  // Exactly Plutonium's shape: a disabled transfer effect, switched on by an
+  // activity that affects "self".
+  const rage = translateDocument('Item', {
+    name: 'Rage',
+    type: 'feat',
+    system: {
+      description: { value: '' },
+      activities: { r: {
+        _id: 'r', type: 'utility', name: 'Expend Rage',
+        activation: { type: 'bonus', value: 1 },
+        target: { affects: { type: 'self' } },
+        effects: [{ _id: 'rageeffect000000' }],
+      } },
+    },
+    effects: [{
+      _id: 'rageeffect000000', name: 'Rage', transfer: true, disabled: true,
+      changes: [
+        { key: 'system.bonuses.mwak.damage', mode: 2, value: '+@scale.barbarian.rage-damage' },
+        { key: 'system.traits.dr.value', mode: 2, value: 'slashing' },
+        { key: 'system.traits.dr.value', mode: 2, value: 'piercing' },
+        { key: 'system.abilities.str.check.roll.mode', mode: 2, value: 1 },
+      ],
+    }],
+  });
+
+  const [effect] = rage.effects;
+  assert.equal(effect.system.effectType, 'onUse');
+  assert.equal(effect.system.applyToSelf, true, 'used, it lands on the barbarian');
+  assert.equal(effect.disabled, false, 'a5e copies it as it is — a disabled copy would do nothing');
+  assert.equal(effect.transfer, false, 'and it is not on the barbarian before they rage');
+  assert.deepEqual(first(rage.system.actions).effects, ['rageeffect000000']);
+
+  // Arrays, not strings: a5e spreads a string into a Set letter by letter.
+  assert.deepEqual(byKey(effect, 'system.traits.damageResistances').map((c) => c.value), [['slashing'], ['piercing']]);
+  assert.equal(byKey(effect, 'flags.a5e.effects.bonuses.damage')[0].value.formula, '@classResources.rage-damage');
+  // dnd5e counts advantage, and so does a5e's roll-mode field — "add", not
+  // "override", or a poisoned barbarian would lose the disadvantage.
+  assert.deepEqual(byKey(effect, 'system.abilities.str.check.rollMode')[0], {
+    key: 'system.abilities.str.check.rollMode', type: 'add', value: 1, phase: 'initial', priority: null,
+  });
+});
+
+test('effects: Shield, a "self" spell with no area, lands on its caster', () => {
+  const shield = translateDocument('Item', {
+    name: 'Shield',
+    type: 'spell',
+    system: {
+      description: { value: '' }, level: 1, school: 'abj', properties: ['vocal', 'somatic'],
+      range: { units: 'self' }, activation: { type: 'reaction', value: 1 },
+      activities: { s: { _id: 's', type: 'utility', effects: [{ _id: 'shieldeffect0000' }] } },
+    },
+    effects: [{ _id: 'shieldeffect0000', name: 'Shield', disabled: true, changes: [{ key: 'system.attributes.ac.bonus', mode: 2, value: 5 }] }],
+  });
+
+  const [effect] = shield.effects;
+  assert.equal(effect.system.applyToSelf, true);
+  assert.deepEqual(byKey(effect, 'system.attributes.ac.changes.bonuses.value')[0].value, 5);
+});
+
+test('effects: an area around the caster is aimed at others, not the caster', () => {
+  const guardians = translateDocument('Item', {
+    name: 'Spirit Guardians', type: 'spell',
+    system: {
+      description: { value: '' }, level: 3, range: { units: 'self' },
+      target: { template: { type: 'radius', size: '15', units: 'ft' } },
+      activities: { g: { _id: 'g', type: 'save', save: { ability: ['wis'] }, effects: [{ _id: 'guardians0000000' }] } },
+    },
+    effects: [{ _id: 'guardians0000000', name: 'Slowed', changes: [{ key: 'system.attributes.movement.walk', mode: 1, value: 0.5 }] }],
+  });
+  assert.equal(guardians.effects[0].system.applyToSelf, false);
+  assert.equal(byKey(guardians.effects[0], 'system.attributes.movement.walk.distance')[0].type, 'multiply');
+});
+
+test('effects: a passive bonus stays on the owner, in a5e\'s own keys and types', () => {
+  const ring = translateDocument('Item', {
+    name: 'Ring of Protection',
+    type: 'equipment',
+    system: { description: { value: '' }, type: { value: 'ring' }, activities: {} },
+    effects: [{
+      _id: 'ringeffect000000',
+      name: 'Ring of Protection',
+      transfer: true,
+      changes: [
+        { key: 'system.attributes.ac.bonus', mode: 2, value: '+1' },
+        { key: 'system.bonuses.abilities.save', mode: 2, value: '+1' },
+        { key: 'system.traits.dr.value', mode: 2, value: 'fire' },
+        { key: 'system.attributes.movement.fly', mode: 4, value: '30' },
+        { key: 'system.attributes.senses.darkvision', mode: 4, value: '60' },
+        { key: 'system.attributes.movement.walk', mode: 2, value: '+ 10' },
+      ],
+    }],
+  });
+
+  const [effect] = ring.effects;
+  assert.equal(effect.system.effectType, 'passive');
+  assert.equal(effect.transfer, true);
+  assert.deepEqual(byKey(effect, 'system.attributes.ac.changes.bonuses.value')[0], {
+    key: 'system.attributes.ac.changes.bonuses.value', type: 'add', value: 1, phase: 'initial', priority: null,
+  });
+  assert.deepEqual(byKey(effect, 'system.traits.damageResistances')[0].value, ['fire']);
+  assert.deepEqual(byKey(effect, 'system.attributes.movement.fly.distance')[0], {
+    key: 'system.attributes.movement.fly.distance', type: 'upgrade', value: 30, phase: 'initial', priority: null,
+  });
+  assert.equal(byKey(effect, 'system.attributes.senses.darkvision.distance')[0].value, 60);
+  assert.equal(byKey(effect, 'system.attributes.movement.walk.distance')[0].value, 10, '"+ 10" is the number 10');
+});
+
+test('effects: modes are named, not renumbered — a5e counts them differently', () => {
+  // a5e's own table: 3 subtract, 4 downgrade, 5 upgrade, 6 override. Foundry's
+  // and dnd5e's: 3 downgrade, 4 upgrade, 5 override. Copying the number would
+  // turn every override into an upgrade.
+  const [effect] = translateDocument('Item', {
+    name: 'Gauntlets of Ogre Power', type: 'equipment',
+    system: { description: { value: '' }, type: { value: 'clothing' }, activities: {} },
+    effects: [{ _id: 'gauntlets0000000', name: 'Ogre Power', transfer: true, changes: [
+      { key: 'system.abilities.str.value', mode: 4, value: '19' },
+      { key: 'system.abilities.con.value', mode: 5, value: '19' },
+      { key: 'system.abilities.dex.value', mode: 'DOWNGRADE', value: '10' },
+    ] }],
+  }).effects;
+
+  assert.equal(byKey(effect, 'system.abilities.str.value')[0].type, 'upgrade');
+  assert.equal(byKey(effect, 'system.abilities.con.value')[0].type, 'override');
+  assert.equal(byKey(effect, 'system.abilities.dex.value')[0].type, 'downgrade', 'Plutonium\'s words too');
+  assert.equal(byKey(effect, 'system.abilities.str.value')[0].value, 19);
+});
+
+test('effects: advantage lands on the paths a5e resolves rolls from', () => {
+  const [effect] = translateDocument('Item', {
+    name: 'Sentinel', type: 'feat', system: { description: { value: '' }, activities: {} },
+    effects: [{ _id: 'adv0000000000000', name: 'Adv', transfer: true, changes: [
+      { key: 'system.abilities.dex.save.roll.mode', mode: 2, value: 1 },
+      { key: 'system.skills.ste.roll.mode', mode: 2, value: -1 },
+      { key: 'flags.dnd5e.initiativeAdv', mode: 5, value: true },
+      { key: 'system.attributes.concentration.roll.mode', mode: 5, value: '1' },
+      { key: 'system.attributes.death.roll.mode', mode: 2, value: 1 },
+    ] }],
+  }).effects;
+
+  assert.deepEqual(byKey(effect, 'system.abilities.dex.save.rollMode').map((c) => [c.type, c.value]), [['add', 1]]);
+  // The data model and the roll read `skills.<id>.rollMode` and
+  // `concentration.rollMode`, whatever a5e's own migration renames them to.
+  assert.deepEqual(byKey(effect, 'system.skills.ste.rollMode').map((c) => [c.type, c.value]), [['add', -1]]);
+  assert.deepEqual(byKey(effect, 'system.attributes.initiative.rollMode').map((c) => [c.type, c.value]), [['override', 1]]);
+  assert.deepEqual(byKey(effect, 'system.attributes.concentration.rollMode').map((c) => [c.type, c.value]), [['override', 1]]);
+  assert.deepEqual(byKey(effect, 'system.rolls.death.rollMode').map((c) => [c.type, c.value]), [['add', 1]]);
+});
+
+test('effects: one skill or one ability gets its own bonus, not a global one', () => {
+  const [effect] = translateDocument('Item', {
+    name: 'Gloves of Thievery', type: 'equipment',
+    system: { description: { value: '' }, type: { value: 'clothing' }, activities: {} },
+    effects: [{ _id: 'gloves0000000000', name: 'Gloves', transfer: true, changes: [
+      { key: 'system.skills.slt.bonuses.check', mode: 2, value: '+ 5' },
+      { key: 'system.abilities.str.bonuses.save', mode: 2, value: '+2' },
+      { key: 'system.attributes.init.bonus', mode: 2, value: '@abilities.wis.mod' },
+    ] }],
+  }).effects;
+
+  const [skill] = byKey(effect, 'flags.a5e.effects.bonuses.skills');
+  assert.deepEqual([skill.value.formula, skill.value.context.skills], ['5', ['slt']]);
+  const [save] = byKey(effect, 'flags.a5e.effects.bonuses.abilities');
+  assert.deepEqual([save.value.context.abilities, save.value.context.types], [['str'], ['save']]);
+  assert.equal(byKey(effect, 'flags.a5e.effects.bonuses.initiative')[0].value.formula, '@wis.mod');
+});
+
+test('effects: conditions carried both ways a5e\'s own effects carry them', () => {
+  const [effect] = translateDocument('Item', {
+    name: 'Blindness', type: 'spell',
+    system: { description: { value: '' }, level: 2, activities: {} },
+    effects: [{ _id: 'blind00000000000', name: 'Blinded', transfer: false, statuses: ['blinded', 'exhaustion'], changes: [] }],
+  }).effects;
+
+  assert.deepEqual(effect.statuses, ['blinded'], 'exhaustion is not an a5e condition');
+  // `getStatuses()` reads this change only when its value is an Array.
+  assert.deepEqual(byKey(effect, 'flags.a5e.effects.statusConditions')[0].value, ['blinded']);
+  assert.equal(effect.system.effectType, 'onUse', 'and the caster is not blinded by owning the spell');
+});
+
+test('effects: an enchantment is dropped, and a key that would write junk is dropped', () => {
+  const out = translateDocument('Item', {
+    name: 'Magic Weapon', type: 'spell',
+    system: { description: { value: '' }, level: 2, activities: {} },
+    effects: [
+      { _id: 'ench000000000000', type: 'enchantment', name: 'Magic Weapon', changes: [{ key: 'name', mode: 5, value: '{} +1' }] },
+      { _id: 'base000000000000', name: 'Odd', transfer: true, changes: [
+        { key: 'system.properties', mode: 2, value: 'mgc' },
+        { key: 'system.attributes.ac.bonus', mode: 2, value: '1' },
+      ] },
+    ],
+  });
+
+  assert.deepEqual(out.effects.map((e) => e._id), ['base000000000000'], 'the enchantment is gone');
+  const [kept] = out.effects;
+  assert.deepEqual(kept.system.changes.map((c) => c.key), ['system.attributes.ac.changes.bonuses.value']);
+  assert.deepEqual(kept.flags['plutonium-a5e'].droppedKeys, ['system.properties'], 'and what was dropped is recorded');
+});
+
+test('effects: unarmoured defence becomes an a5e base formula', () => {
+  const [effect] = translateDocument('Item', {
+    name: 'Unarmored Defense', type: 'feat', system: { description: { value: '' }, activities: {} },
+    effects: [{ _id: 'unarmored0000000', name: 'Unarmored Defense', transfer: true, changes: [
+      { key: 'system.attributes.ac.calc', mode: 5, value: 'unarmoredBarb' },
+    ] }],
+  }).effects;
+
+  assert.deepEqual(byKey(effect, 'system.attributes.ac.baseFormula')[0].value, '10 + @dex.mod + @con.mod');
+});
+
+test('effects: one Foundry 14 has already migrated is translated from system.changes', async () => {
+  // What an earlier import left in the world: Foundry moved the dnd5e changes
+  // into `system.changes` and named their modes, but kept dnd5e's keys.
+  const { translateEffect } = await import('../scripts/translate/effects.js');
+  const effect = translateEffect({
+    _id: 'old0000000000000', name: 'Rage', type: 'base', transfer: false, statuses: [],
+    system: { changes: [{ key: 'system.traits.dr.value', type: 'add', value: 'fire', phase: 'initial', priority: null }], effectType: 'passive' },
+  });
+  assert.deepEqual(byKey(effect, 'system.traits.damageResistances')[0].value, ['fire']);
+  assert.equal(effect.system.effectType, 'onUse');
+
+  // And translating the result again changes nothing.
+  assert.equal(translateEffect(effect), effect);
+});
+
+test('effects: a creature\'s own effects are simply in force', () => {
+  const actor = translateDocument('Actor', {
+    ...goblin,
+    effects: [{ _id: 'actoreffect00000', name: 'Magic Resistance', transfer: false, changes: [
+      { key: 'system.abilities.wis.save.roll.mode', mode: 2, value: 1 },
+    ] }],
+  });
+  assert.equal(actor.effects[0].system.effectType, 'passive');
+});
+
+// What an earlier import left on an item: Foundry 14 moved the dnd5e changes
+// into `system.changes` and named their modes; a5e called the effect passive.
+const oldEffect = (overrides = {}) => ({
+  _id: 'oldeffect0000000', name: 'Old', type: 'base', transfer: false, disabled: false, statuses: [],
+  flags: {},
+  system: { changes: [{ key: 'system.traits.dr.value', type: 'add', value: 'fire', phase: 'initial', priority: null }], effectType: 'passive', applyToSelf: false, default: true },
+  ...overrides,
+});
+const oneActionItem = (effects, action = {}) => ({
+  name: 'Imported', type: 'spell', flags: { 'plutonium-a5e': { converted: true } },
+  system: { level: 1, actions: { act0000000000000: { name: 'Cast', ranges: { r: { range: 30, unit: 'feet' } }, effects: [], ...action } } },
+  effects,
+});
+
+test('migration: an earlier import\'s on-use effect stops applying to its owner', async () => {
+  const { repairedEffects } = await import('../scripts/migrate.js');
+  const out = repairedEffects(oneActionItem([oldEffect({ statuses: ['blinded'] })]));
+
+  const [update] = out.updates;
+  assert.equal(update.system.effectType, 'onUse');
+  assert.equal(update.system.applyToSelf, false, 'a 30-foot action aims at others');
+  assert.deepEqual(update.system.changes.map((c) => [c.key, c.value]), [
+    ['system.traits.damageResistances', ['fire']],
+    ['flags.a5e.effects.statusConditions', ['blinded']],
+  ]);
+  assert.equal(update.flags['plutonium-a5e'].converted, true);
+  assert.deepEqual(out.actionUpdate, { 'system.actions.act0000000000000.effects': ['oldeffect0000000'] });
+});
+
+test('migration: a disabled carried effect with one action is that action\'s, on its user', async () => {
+  // Rage: dnd5e keeps it on the barbarian, disabled, for its activity to switch on.
+  const { repairedEffects } = await import('../scripts/migrate.js');
+  const out = repairedEffects(oneActionItem([oldEffect({ transfer: true, disabled: true })]));
+  const [update] = out.updates;
+  assert.deepEqual([update.system.effectType, update.system.applyToSelf, update.disabled, update.transfer],
+    ['onUse', true, false, false]);
+});
+
+test('migration: a carried effect stays carried, and an a5e-made one is left alone', async () => {
+  const { repairedEffects } = await import('../scripts/migrate.js');
+  const ring = repairedEffects(oneActionItem([oldEffect({ transfer: true })]));
+  assert.equal(ring.updates[0].system.effectType, 'passive');
+  assert.equal(ring.actionUpdate, null);
+
+  const own = oldEffect({ system: { changes: [{ key: 'system.traits.damageResistances', type: 'add', value: ['fire'] }], effectType: 'passive' } });
+  assert.equal(repairedEffects(oneActionItem([own])), null, 'already in a5e\'s words');
+  const chosen = oldEffect({ system: { changes: [], effectType: 'onUse' } });
+  assert.equal(repairedEffects(oneActionItem([chosen])), null, 'set up on a5e\'s sheet');
+  const done = oldEffect({ flags: { 'plutonium-a5e': { converted: true } } });
+  assert.equal(repairedEffects(oneActionItem([done])), null, 'and nothing is done twice');
+});
+
+test('migration: with several actions, nothing is guessed', async () => {
+  const { repairedEffects } = await import('../scripts/migrate.js');
+  const item = oneActionItem([oldEffect()]);
+  item.system.actions.second0000000000 = { name: 'Other', effects: [] };
+  const out = repairedEffects(item);
+  assert.equal(out.updates[0].system.effectType, 'onUse', 'still not on the owner');
+  assert.equal(out.actionUpdate, null);
+});
+
+test('migration: an upcast spell gains a5e\'s config.value, once', async () => {
+  const { repairedUpcastActions } = await import('../scripts/migrate.js');
+  const spell = (scaling) => ({ type: 'spell', system: { level: 3, actions: { a: { rolls: { r: { type: 'damage', formula: '8d6', scaling } } } } } });
+
+  assert.deepEqual(
+    repairedUpcastActions(spell({ mode: 'spellLevel', formula: '1d6' })).a.rolls.r.scaling,
+    { mode: 'spellLevel', formula: '1d6', config: { value: '1d6' } },
+  );
+  assert.equal(repairedUpcastActions(spell({ mode: 'spellLevel', formula: '1d6', config: { value: '1d6' } })), null);
+});
+
+test('spell: casting from a higher slot adds dice — a5e reads config.value', () => {
+  // a5e's own Fireball: { mode: "spellLevel", formula: "1d6", config: { value: "1d6" } }.
+  // Its slot scaling reads `config`; without it an upcast gained nothing.
+  const scaling = Object.values(first(translateDocument('Item', fireball).system.actions).rolls)
+    .find((r) => r.type === 'damage').scaling;
+  assert.deepEqual(scaling, { mode: 'spellLevel', formula: '1d6', config: { value: '1d6' } });
+});
+
+test('spell: dnd5e\'s "half" scaling adds dice every other slot — a5e\'s step of 2', () => {
+  const half = structuredClone(fireball);
+  half.system.activities.jkl.damage.parts[0].scaling = { mode: 'half', number: 1 };
+  const scaling = Object.values(first(translateDocument('Item', half).system.actions).rolls)
+    .find((r) => r.type === 'damage').scaling;
+  assert.deepEqual(scaling, { mode: 'spellLevel', formula: '1d6', config: { value: '1d6' }, step: 2 });
 });
 
 

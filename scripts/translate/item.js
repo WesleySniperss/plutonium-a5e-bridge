@@ -4,6 +4,7 @@ import {
   addUsesConsumer,
   convertUses,
   defaultAction,
+  effectDelivery,
   withMagic,
 } from './actions.js';
 import {
@@ -36,6 +37,7 @@ import {
 } from './origins.js';
 import { resourcesFromClassTable } from '../class-table.js';
 import { translateDescription } from './description.js';
+import { translateEffects } from './effects.js';
 import { debug } from '../util/log.js';
 
 // dnd5e keeps item properties as a Set; it arrives as an array or a Set depending
@@ -54,6 +56,15 @@ function descriptionOf(system) {
 
 // What an activity inherits from its item unless it overrides it. dnd5e keeps
 // these on the item for spells, and a weapon's range there too.
+// An activity names the effects it applies by id; only those that survive
+// translation can be linked to the a5e action — an enchantment is dropped.
+function effectIdsOf(data) {
+  return new Set((data?.effects ?? [])
+    .filter((e) => e && e.type !== 'enchantment')
+    .map((e) => e._id)
+    .filter(Boolean));
+}
+
 function inheritedFrom(system) {
   return {
     activation: system?.activation,
@@ -191,6 +202,7 @@ function toObject(data, ctx) {
       description: descriptionOf(system),
       ...ctx,
       inherit: inheritedFrom(system),
+      effectIds: effectIdsOf(data),
       isWeapon: kind.objectType === 'weapon',
       magicBonus: Number(system.magicalBonus) || 0,
       // Lives on the item in dnd5e, not the activity, so the action builder
@@ -289,6 +301,7 @@ function toSpell(data, ctx) {
       isSpell: true,
       spellLevel: Number(system.level) || 0,
       inherit: inheritedFrom(system),
+      effectIds: effectIdsOf(data),
       concentration: flags.has('concentration'),
       ...ctx,
     }),
@@ -358,6 +371,7 @@ function toFeature(data, ctx) {
       description: descriptionOf(system),
       ...ctx,
       inherit: inheritedFrom(system),
+      effectIds: effectIdsOf(data),
     }),
   };
 
@@ -493,6 +507,15 @@ export function translateItem(data, ctx = {}) {
     type: a5eType,
     system,
   };
+
+  // dnd5e effects name dnd5e paths and numeric modes a5e reads differently, and
+  // without an explicit type a5e treats every item effect as passive — applied
+  // to the owner, even one meant for a target. Translated, not copied.
+  if (Array.isArray(data.effects)) {
+    out.effects = translateEffects(data.effects, {
+      delivery: effectDelivery(data.system?.activities, inheritedFrom(data.system)),
+    });
+  }
 
   // Keep the original payload so a bad conversion can be diagnosed (and, later,
   // re-run) without re-importing from 5etools.

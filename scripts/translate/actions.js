@@ -121,12 +121,20 @@ function scalingOf(part, { isSpell, isCantrip = false }) {
   }
 
   if (mode === 'whole' || mode === 'half') {
-    return isSpell
-      ? { mode: 'spellLevel', formula: `${number}d${part.denomination ?? 6}` }
-      : {};
+    // a5e reads the per-level step from `config.value` — its own migration moved
+    // it there from `formula` — and ignores `formula`; its own Fireball carries
+    // both. Without `config` an upcast spell gained nothing from a higher slot.
+    // dnd5e's "half" adds the dice every other slot level, which a5e writes as
+    // a `step` of 2: `Math.floor(levelsAbove / (scaling.step || 1))`.
+    if (!isSpell) return {};
+    const step = `${number}d${part.denomination ?? 6}`;
+    const out = { mode: 'spellLevel', formula: step, config: { value: step } };
+    if (mode === 'half') out.step = 2;
+    return out;
   }
   if (mode === 'cantrip') {
-    return { mode: 'cantrip', formula: `${number}d${part.denomination ?? 6}` };
+    const step = `${number}d${part.denomination ?? 6}`;
+    return { mode: 'cantrip', formula: step, config: { value: step } };
   }
   return {};
 }
@@ -599,7 +607,11 @@ export function activityToAction(activity, opts = {}) {
     rolls,
     prompts,
     consumers: {},
-    effects: [],
+    // The effects this action applies, by id — how a5e links an on-use effect
+    // to the action that delivers it. dnd5e writes them as [{ _id }].
+    effects: (activity.effects ?? [])
+      .map((e) => (typeof e === 'string' ? e : e?._id))
+      .filter((id) => id && (!opts.effectIds || opts.effectIds.has(id))),
     macro: '',
   };
 
@@ -616,6 +628,36 @@ export function activityToAction(activity, opts = {}) {
   }
 
   return action;
+}
+
+// Whether an activity's effects land on the one using it. dnd5e says so with
+// `affects.type: "self"` (Rage); a spell like Shield says it by having a range
+// of "self" and no area, which an activity inherits from its item.
+function targetsSelf(activity, inherit) {
+  const target = effective(activity, inherit, 'target');
+  const affects = target?.affects?.type;
+  if (affects) return affects === 'self';
+  if (target?.template?.type) return false;
+  return effective(activity, inherit, 'range')?.units === 'self';
+}
+
+/**
+ * Which of an item's effects its activities deliver, and to whom.
+ * An effect one activity aims at others is not self-only, whatever another says.
+ * @returns {Map<string, { self: boolean }>} by effect id
+ */
+export function effectDelivery(activities, inherit) {
+  const out = new Map();
+  for (const activity of Object.values(activities ?? {})) {
+    const self = targetsSelf(activity, inherit);
+    for (const ref of activity?.effects ?? []) {
+      const effectId = typeof ref === 'string' ? ref : ref?._id;
+      if (!effectId) continue;
+      const seen = out.get(effectId);
+      out.set(effectId, { self: (seen ? seen.self : true) && self });
+    }
+  }
+  return out;
 }
 
 /**

@@ -62,6 +62,8 @@ Install, step 1.
 | **Subclasses** | `archetype` + levelled feature grants | **Works, including automatic features on level-up.** See below. |
 | **Classes** | `class` + levelled feature grants | **Features work, including on level-up.** Proficiencies, ASIs and spell slots do not — see below. |
 | Backgrounds, races | `background` / `heritage` | **Text only.** See below. |
+| Active Effects | a5e effects | **Works.** Keys, value types and modes are translated to the ones a5e reads; an effect an activity applies becomes a5e's *on use*, linked to the action, and lands on the user when the activity targets "self" (Rage, Shield). About 93% of the changes Plutonium ships carry over. |
+| Formulas | unchanged, resolved at roll time | **Works.** dnd5e roll-data names — `@details.level`, `@attributes.spell.level`, `@classes.<id>.levels`, `@scale.<class>.<value>`, `@mod`, `@scaling` — are supplied on a5e actors, so Booming Blade and the like roll the right dice. |
 
 ## Classes and subclasses
 
@@ -381,9 +383,12 @@ advancement choices. Use a5e-mancer for character creation.
 
 Other known losses:
 
-- **Active Effects** pass through untranslated. dnd5e effect change keys
-  (`system.attributes.ac.bonus`, …) do not exist in a5e, so most imported effects
-  will be inert. They are visible on the item and easy to fix by hand.
+- **A few Active Effect changes have no a5e counterpart** and are dropped:
+  dnd5e's feat switches (`flags.dnd5e.jackOfAllTrades`, `reliableTalent`, …),
+  special senses written as text, weapon mastery and tool proficiency, ability
+  maximums. Enchantments — effects that rewrite the item they sit on — are
+  dropped whole. Each translated effect lists what it lost in
+  `flags.plutonium-a5e.droppedKeys`. See *Effects and formulas* below.
 - **Attack ability is inferred.** A statblock only prints a total. Where the
   creature is known, the bridge picks the ability that reproduces the printed
   number exactly (which is how a finesse attacker correctly lands on dex) and
@@ -398,6 +403,45 @@ Other known losses:
   `TransformDialog` and its `transformationSettings` setting, neither of which
   a5e has. Startup is unaffected — it only registers keybinds — so this fails
   only if the polymorpher is actually opened.
+
+## Effects and formulas
+
+**Formulas are left in dnd5e's words and answered at roll time.** Plutonium's
+data writes formulas against dnd5e's roll data — Booming Blade is
+`(floor(((@details.level + @attributes.spell.level) + 1) / 6))d8`. Foundry does
+not fail on a name it cannot resolve; it reads it as zero, so under a5e that
+was `0d8` at every level. The bridge adds dnd5e's names to every a5e actor's roll
+data, with the values dnd5e gives them: a character's level, an NPC's
+spellcasting level, `@classes.<id>.levels` (by dnd5e id too — `barbarian` for
+a5e's berserker), `@scale.<class>.<value>` with `.die` and `.number`, `@mod` for
+the ability of whatever is rolling, and a cantrip's `@scaling`. Nothing a5e
+defines is overwritten. A spell cast from a higher slot still reads `@scaling`
+as zero — a5e scales those through the action's own scaling, which the bridge
+fills in.
+
+**Effects are translated, change by change.** a5e 1.4 reads its effects in its
+own keys and its own value types: a trait list takes an array (a string is
+spread into its letters), a bonus is an object a5e reads `formula` and
+`context` from, a roll mode is a counted -1 or 1. The paths used are the ones
+a5e's data model and roll code read — `skills.<id>.rollMode` and
+`concentration.rollMode` — not the `…check.rollMode` its own migration renames
+them to, which nothing reads.
+
+Who an effect is for comes from the activities, as in dnd5e: one an activity
+applies becomes a5e's *on use* and is linked to the action, so it is offered when
+the action is used rather than sitting on the owner — a5e treats every effect it
+is not told about as passive, which is how an imported Blindness used to blind
+its caster. When the activity targets "self", or is a "self" spell with no area,
+the effect lands on the user (Rage, Shield). An effect dnd5e transfers stays on
+the owner.
+
+Effects imported by an earlier version are translated once, on load, from what
+Foundry kept of them. When their item has a single action, that action is taken
+to deliver them; with several, nothing is guessed.
+
+**Macros:** Plutonium ships none — its Foundry data has no macro fields, and its
+importer attaches none — so there is nothing macro-based to carry over. Effects
+an author wrote with DAE or Midi-QOL flags are dnd5e-only and are not converted.
 
 ## Two things a5e insists on
 

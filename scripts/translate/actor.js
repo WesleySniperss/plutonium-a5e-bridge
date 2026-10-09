@@ -1,6 +1,7 @@
 import { ABILITIES, ACTOR_TYPE, DISTANCE_UNITS, SIZE, SKILLS, pick } from './maps.js';
 import { debug } from '../util/log.js';
 import { translateDescription } from './description.js';
+import { translateEffects } from './effects.js';
 
 const MOVEMENT_KEYS = ['walk', 'burrow', 'climb', 'fly', 'swim'];
 const SENSE_KEYS = ['blindsight', 'darkvision', 'tremorsense', 'truesight'];
@@ -282,6 +283,10 @@ export function translateActor(data) {
   // tracker on the sheet of something that has never cast anything.
   const slots = spellSlotsOf(system);
   if (slots) out.system.spellResources = { slots };
+
+  // A creature's own effects — Magic Resistance, a breath recharge — name
+  // dnd5e paths just as an item's do.
+  if (Array.isArray(data.effects)) out.effects = translateEffects(data.effects, { parent: 'Actor' });
 
   out.flags = {
     ...(data.flags ?? {}),

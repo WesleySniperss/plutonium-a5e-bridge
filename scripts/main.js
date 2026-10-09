@@ -31,6 +31,7 @@ import {
 import { getUnmappedConfigPaths, installDnd5eGameShim, installDnd5eShim } from './config-shim.js';
 import { getInstalledStubs, installPatchTargets } from './patch-targets.js';
 import { installActorShim } from './actor-shim.js';
+import { installRollDataShim } from './roll-data-shim.js';
 import { publishFeats } from './feats.js';
 import { publishAll, reindexWorldPacks } from './publish-content.js';
 import { addAsiGrants } from './asi-grants.js';
@@ -74,6 +75,10 @@ Hooks.once('ready', () => {
   // before it creates anything. An import is user-driven, so `ready` is early
   // enough — and by now a5e has registered the actor classes to wrap.
   installActorShim();
+
+  // Plutonium's formulas name dnd5e roll data; Foundry reads an unknown name
+  // as zero, so without these every one of them rolled as if at level 0.
+  installRollDataShim();
 
   // Late retry, in case Plutonium was loaded in an unusual order.
   installPlutoniumBridge();

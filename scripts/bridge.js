@@ -4,6 +4,7 @@ import { assignSpellBooks } from './spellbook.js';
 import { addCommonManeuversTo } from './maneuvers.js';
 import { publishImportedContent } from './publish-content.js';
 import { repairQuantityConsumers } from './translate/actions.js';
+import { translateEffects } from './translate/effects.js';
 import { pruneUpdate, translateDocument } from './translate/index.js';
 import { ID, debug, log, warn } from './util/log.js';
 
@@ -251,6 +252,15 @@ export function installPlutoniumBridge() {
     }
 
     const name = opts?.ClsEmbed?.metadata?.name;
+
+    // Effects Plutonium puts straight onto a character after an import — what a
+    // race, background or feat does to the actor — name dnd5e paths too.
+    if (name === 'ActiveEffect') {
+      const effects = translateEffects(embedArray, { parent: doc?.documentName ?? 'Item' });
+      debug(`Translated ${effects.length} of ${embedArray.length} effect(s) for "${doc?.name}".`);
+      return effects.length ? origCreateEmbedded(doc, effects, opts) : [];
+    }
+
     if (name !== 'Item') return origCreateEmbedded(doc, embedArray, opts);
 
     const translated = embedArray.map((embed) => translateDocument('Item', embed, doc));
