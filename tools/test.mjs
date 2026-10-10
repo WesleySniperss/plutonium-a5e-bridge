@@ -1614,6 +1614,72 @@ test('actor shim: the field Plutonium reads exists, and stays out of the data', 
 });
 
 
+test('libWrapper: the shims register through it, the way Plutonium wraps the same method', async () => {
+  // a5e 1.4 sets CONFIG.Actor.documentClass to ActorA5E itself, the prototype
+  // Plutonium wraps `getRollData` on through libWrapper. Assigning over it
+  // instead is what libWrapper reported as "modify the same FoundryVTT
+  // functionality and are more likely to conflict".
+  const { installRollDataShim } = await import('../scripts/roll-data-shim.js');
+  const { installActorShim } = await import('../scripts/actor-shim.js');
+
+  class ActorA5E {
+    getRollData() { return { prof: 2 }; }
+    prepareData() {}
+  }
+  const original = { getRollData: ActorA5E.prototype.getRollData, prepareData: ActorA5E.prototype.prepareData };
+  const registered = [];
+
+  const prev = { CONFIG: globalThis.CONFIG, game: globalThis.game, libWrapper: globalThis.libWrapper };
+  globalThis.CONFIG = { Actor: { documentClass: ActorA5E }, A5E: { Actor: { documentClasses: {} } } };
+  globalThis.game = { ...prev.game, actors: [] };
+  globalThis.libWrapper = { register: (...args) => registered.push(args) };
+  try {
+    assert.equal(installRollDataShim(), true);
+    assert.equal(installActorShim(), true);
+  } finally {
+    globalThis.CONFIG = prev.CONFIG;
+    globalThis.game = prev.game;
+    globalThis.libWrapper = prev.libWrapper;
+  }
+
+  assert.deepEqual(registered.map(([id, target, , type]) => [id, target, type]), [
+    ['plutonium-a5e', 'CONFIG.Actor.documentClass.prototype.getRollData', 'WRAPPER'],
+    ['plutonium-a5e', 'CONFIG.Actor.documentClass.prototype.prepareData', 'WRAPPER'],
+  ]);
+  assert.equal(ActorA5E.prototype.getRollData, original.getRollData, 'nothing assigned over the method');
+  assert.equal(ActorA5E.prototype.prepareData, original.prepareData);
+
+  // Called the way libWrapper calls a WRAPPER: the actor as `this`, the next
+  // function in the chain first.
+  const [, , withNames] = registered[0];
+  const actor = { type: 'character', name: 'PC', levels: { character: 11 }, system: { details: {}, attributes: {} }, items: [] };
+  let chained = 0;
+  const rd = withNames.call(actor, () => { chained += 1; return { level: 11, prof: 4 }; }, null);
+  assert.equal(chained, 1, 'the rest of the chain — a5e and Plutonium — runs exactly once');
+  assert.equal(rd.details.level, 11);
+});
+
+test('libWrapper: per-type a5e classes are each wrapped once, by a path it can resolve', async () => {
+  const { actorMethodTargets } = await import('../scripts/util/wrap.js');
+  class Base { getRollData() {} }
+  class Character extends Base {}
+  class Npc extends Base {}
+
+  const prev = globalThis.CONFIG;
+  globalThis.CONFIG = { Actor: { documentClass: Base }, A5E: { Actor: { documentClasses: { character: Character, npc: Npc, monster: Npc } } } };
+  let targets;
+  try {
+    targets = actorMethodTargets('getRollData');
+  } finally {
+    globalThis.CONFIG = prev;
+  }
+  assert.deepEqual(targets.map((t) => t.target), [
+    'CONFIG.A5E.Actor.documentClasses.character.prototype.getRollData',
+    'CONFIG.A5E.Actor.documentClasses.npc.prototype.getRollData',
+  ]);
+});
+
+
 // --- class tables ------------------------------------------------------------
 
 // Built exactly the way Plutonium builds it, from `getRenderedClassTableFromDereferenced`:

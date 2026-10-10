@@ -1,4 +1,5 @@
 import { debug, warn } from './util/log.js';
+import { actorMethodTargets, wrapMethod } from './util/wrap.js';
 
 // Plutonium's class importer reads a character's existing proficiencies straight
 // out of the dnd5e actor source, and two of the four readers assume they found
@@ -44,25 +45,21 @@ function stamp(actor) {
   }
 }
 
-// `CONFIG.Actor.documentClass` is not the class a character is an instance of.
-// a5e puts a Proxy there whose construct trap picks the real one by type:
-//
-//   actorProxy_default = new Proxy(BaseActorA5e, { construct(e, t) {
-//     return new (CONFIG.A5E.Actor.documentClasses[t[0].type ...
-//
-// and `CharacterActorA5E` defines its own `prepareData`, so wrapping the base
-// prototype would be shadowed. The real classes are the ones to wrap.
-function actorClasses() {
-  const byType = CONFIG.A5E?.Actor?.documentClasses;
-  const found = byType ? Object.values(byType) : [];
-
-  // Fall back to whatever is configured, for a future where that proxy is gone.
-  if (!found.length && CONFIG.Actor?.documentClass) found.push(CONFIG.Actor.documentClass);
-
-  return found.filter((cls) => typeof cls?.prototype?.prepareData === 'function');
-}
+// Some a5e versions put a Proxy at `CONFIG.Actor.documentClass` that picks the
+// real class by type, and their `CharacterActorA5E` defines its own
+// `prepareData` — so the per-type classes are wrapped when there are any. a5e
+// 1.4 sets `ActorA5E` there directly and registers none; then that is wrapped.
+// Through libWrapper, so another module wrapping the same method is not
+// overwritten.
 
 const wrapped = new WeakSet();
+
+// Called with the actor as `this`.
+function stampAfterPrepare(next, ...args) {
+  const result = next(...args);
+  if (this.type === 'character') stamp(this);
+  return result;
+}
 
 /**
  * Give character actors the dnd5e-shaped proficiency fields Plutonium reads
@@ -72,26 +69,23 @@ const wrapped = new WeakSet();
  * it means the system has finished registering its document classes.
  */
 export function installActorShim() {
-  const classes = actorClasses();
-  if (!classes.length) {
+  // `prepareData` runs on construction and after every change, which is what
+  // makes it the reliable place: a source rebuilt by an update gets stamped
+  // again before anything can read it.
+  let count = 0;
+  for (const { target, owner } of actorMethodTargets('prepareData')) {
+    if (wrapped.has(owner)) continue;
+    try {
+      wrapMethod(target, owner, 'prepareData', stampAfterPrepare);
+      wrapped.add(owner);
+      count += 1;
+    } catch (e) {
+      warn(`Could not wrap ${target}: ${e.message}`);
+    }
+  }
+  if (!count) {
     warn('Could not shim actor proficiencies — Plutonium may fail to import classes that grant tools.');
     return false;
-  }
-
-  for (const cls of classes) {
-    if (wrapped.has(cls.prototype)) continue;
-    wrapped.add(cls.prototype);
-
-    const orig = cls.prototype.prepareData;
-
-    // `prepareData` runs on construction and after every change, which is what
-    // makes it the reliable place: a source rebuilt by an update gets stamped
-    // again before anything can read it.
-    cls.prototype.prepareData = function prepareData(...args) {
-      const result = orig.apply(this, args);
-      if (this.type === 'character') stamp(this);
-      return result;
-    };
   }
 
   // Actors built before the wrap went on never ran through it.
@@ -99,6 +93,6 @@ export function installActorShim() {
     if (actor.type === 'character') stamp(actor);
   }
 
-  debug(`Actor proficiency shim installed on ${classes.length} class(es).`);
+  debug(`Actor proficiency shim installed on ${count} class(es).`);
   return true;
 }

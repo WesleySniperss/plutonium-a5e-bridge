@@ -1,5 +1,6 @@
 import { CLASS_SLUG } from './translate/maps.js';
 import { debug, warn } from './util/log.js';
+import { actorMethodTargets, wrapMethod } from './util/wrap.js';
 
 // dnd5e formulas, in an a5e world.
 //
@@ -217,30 +218,32 @@ export function addDnd5eAliases(actor, item, rd) {
 
 const wrapped = new WeakSet();
 
-/** Wrap a5e's actor roll data so dnd5e formulas resolve. Installed at `ready`. */
+function withDnd5eAliases(next, ...args) {
+  const rd = next(...args);
+  // A failure here must never cost a5e its own roll.
+  try {
+    addDnd5eAliases(this, args[0] ?? null, rd);
+  } catch (e) {
+    debug(`Roll data aliases skipped for "${this?.name}": ${e.message}`);
+  }
+  return rd;
+}
+
+/**
+ * Wrap a5e's actor roll data so dnd5e formulas resolve. Installed at `ready`.
+ * Through libWrapper: Plutonium wraps the same method.
+ */
 export function installRollDataShim() {
-  const byType = CONFIG.A5E?.Actor?.documentClasses;
-  const classes = byType ? Object.values(byType) : [];
-  if (!classes.length && CONFIG.Actor?.documentClass) classes.push(CONFIG.Actor.documentClass);
-
   let count = 0;
-  for (const cls of classes) {
-    const proto = cls?.prototype;
-    if (!proto?.getRollData || wrapped.has(proto)) continue;
-    wrapped.add(proto);
-
-    const orig = proto.getRollData;
-    proto.getRollData = function getRollData(...args) {
-      const rd = orig.apply(this, args);
-      // A failure here must never cost a5e its own roll.
-      try {
-        addDnd5eAliases(this, args[0] ?? null, rd);
-      } catch (e) {
-        debug(`Roll data aliases skipped for "${this?.name}": ${e.message}`);
-      }
-      return rd;
-    };
-    count += 1;
+  for (const { target, owner } of actorMethodTargets('getRollData')) {
+    if (wrapped.has(owner)) continue;
+    try {
+      wrapMethod(target, owner, 'getRollData', withDnd5eAliases);
+      wrapped.add(owner);
+      count += 1;
+    } catch (e) {
+      warn(`Could not wrap ${target}: ${e.message}`);
+    }
   }
 
   if (!count) {

@@ -419,6 +419,11 @@ defines is overwritten. A spell cast from a higher slot still reads `@scaling`
 as zero — a5e scales those through the action's own scaling, which the bridge
 fills in.
 
+The names are added by wrapping the actor's `getRollData` through libWrapper,
+alongside Plutonium's own wrapper of the same method. (0.37.0 assigned over it
+instead, which libWrapper reported as the two modules "modifying the same
+FoundryVTT functionality".)
+
 **Effects are translated, change by change.** a5e 1.4 reads its effects in its
 own keys and its own value types: a trait list takes an array (a string is
 spread into its letters), a bonus is an object a5e reads `formula` and
