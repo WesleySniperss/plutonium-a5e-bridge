@@ -52,7 +52,7 @@ Install, step 1.
 
 | 5etools content | a5e result | State |
 | --- | --- | --- |
-| Creatures / NPCs | `npc` actor | Works. Abilities, AC, HP, hit dice, speeds, senses, skills, saves, traits, immunities, languages, CR, legendary/lair resources. |
+| Creatures / NPCs | `npc` actor | Works, into the world and into a compendium alike. Abilities, AC, HP, hit dice, speeds, senses, skills, saves, traits, immunities, languages, CR, legendary/lair resources, spell slots and caster level. |
 | Creature actions & traits | `feature` items with actions | Works. Attacks get an a5e attack roll + damage roll; save effects get a saving-throw prompt; recharge is mapped to a5e uses. |
 | Items, weapons, armour, gear | `object` items | Works. Object type, AC formula and dex cap, price, weight, rarity, attunement, weapon/material properties, versatile die, actions. A magic bonus is folded into the attack, the damage or the AC formula, since a5e has no field for it. |
 | Spells | `spell` items | Works. Level, school, components, materials, ritual/concentration, upcast scaling, save prompt, and a spell-slot consumer so casting actually spends a slot. On an actor they are filed under a spell book — a5e refuses to create one otherwise. |
@@ -479,6 +479,38 @@ an NPC that throws for every single creature trait. a5e's own grant code passes 
 actor is not a character. Nothing is lost: grants key off class levels, which an
 NPC does not have. Characters are untouched — their grants are what hands out
 archetype features.
+
+## How a creature reaches the world
+
+Plutonium never creates a world creature from its data. It creates an empty
+placeholder first, so its items have an actor to land on, and then writes the
+whole dnd5e statblock onto it in a single update — clearing the placeholder's
+`isImporterTempActor` flag in the same write. Until 0.38.0 that update was only
+pruned key by key, so everything a5e keeps under a different name was lost on
+every creature imported into the world: its spell slots and caster level, its
+languages and creature type, its immunities, its legendary actions and its
+biography. The spells themselves arrived; a Mage had sixteen of them, caster
+level 0 and no slot to cast one with. Only a compendium import, which builds the
+actor from its data, was translated whole.
+
+The bridge now recognises that update — by the cleared flag, or by a dnd5e
+biography object, which a5e does not have — and translates it as a whole actor.
+Creatures imported into the world before 0.38.0 can only be repaired by
+importing them again: the dnd5e values were never stored. Re-import over the
+existing creature (Plutonium asks whether to overwrite it) and its spells,
+slots and the rest come across together.
+
+An at-will spell is written by Plutonium with a `uses` whose maximum is empty.
+That used to be read as a limit of nothing — an `itemUses` consumer with zero
+uses, so a5e warned "not enough uses" at every casting, and refused to cast at
+all in a world set to block a roll on a warning. Only a real limit ("1/day")
+gets uses and a consumer now; migration 9 takes the empty consumer off spells
+imported before.
+
+a5e itself gives every creature created in the world the six manoeuvres anyone
+can attempt. The bridge used to add them as well, before a5e's had landed, so
+each import carried two of each; it now waits for a5e's and adds its own only
+to a creature a5e left without.
 
 ## Troubleshooting
 

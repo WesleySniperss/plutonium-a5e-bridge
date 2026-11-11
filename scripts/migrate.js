@@ -1,5 +1,11 @@
 import { FLAG_SCOPE } from './translate/origins.js';
-import { adoptExistingFeatures, rebuildArchetypeGrants, rebuildClassGrants } from './grant-linker.js';
+import {
+  adoptExistingFeatures,
+  deletionEntry,
+  rebuildArchetypeGrants,
+  rebuildClassGrants,
+} from './grant-linker.js';
+import { hasLimit } from './translate/item.js';
 import { repairUseConsumers } from './repair.js';
 import { addAsiGrants } from './asi-grants.js';
 import { backfillCommonManeuvers } from './maneuvers.js';
@@ -14,7 +20,7 @@ import { ID, error, log, warn } from './util/log.js';
 // level-up. All of it can be recovered from what is already on the documents —
 // so it is, once, rather than being left as homework.
 
-const CURRENT = 8;
+const CURRENT = 9;
 // What a step could not touch, named so the GM can find it. Kept for one run.
 const skipped = [];
 
@@ -186,6 +192,23 @@ export function repairedUpcastActions(item) {
   return changed ? actions : null;
 }
 
+// An at-will spell imported before the fix was given an `itemUses` consumer and
+// no limit to spend, so a5e warned "not enough uses" every time it was cast. Only
+// a consumer on a spell whose uses cap nothing is taken off; a "1/day" keeps its.
+export function unlimitedUsesRepair(item) {
+  if (item.type !== 'spell' || hasLimit(item.system?.uses)) return null;
+
+  const update = {};
+  for (const [actionId, action] of Object.entries(item.system?.actions ?? {})) {
+    for (const [consumerId, consumer] of Object.entries(action?.consumers ?? {})) {
+      if (consumer?.type !== 'itemUses') continue;
+      const [key, value] = deletionEntry(`system.actions.${actionId}.consumers`, consumerId);
+      update[key] = value;
+    }
+  }
+  return Object.keys(update).length ? update : null;
+}
+
 function repairedDescription(item) {
   const text = item.system?.description;
   if (typeof text !== 'string') return null;
@@ -219,9 +242,14 @@ async function repairSpellsAndText() {
     const description = repairedDescription(item);
     if (description != null) update['system.description'] = description;
 
-    if (!Object.keys(update).length) continue;
+    let touched = Object.keys(update).length ? await safeUpdate(item, update) : false;
 
-    if (await safeUpdate(item, update)) fixed += 1;
+    // Separately, and after: it deletes keys inside the actions the update above
+    // may have just rewritten, and one write cannot do both to the same path.
+    const uses = unlimitedUsesRepair(item);
+    if (uses && await safeUpdate(item, uses)) touched = true;
+
+    if (touched) fixed += 1;
   }
 
   return fixed;
@@ -422,7 +450,7 @@ export async function runMigrations() {
       if (references) parts.push(`repointed ${references} scaling formula set(s)`);
       if (asi) parts.push(`gave ${asi} class(es) their ability score increases`);
       if (maneuvers) parts.push(`gave ${maneuvers} creature(s) the common manoeuvres`);
-      if (spellsAndText) parts.push(`fixed spell scaling or description text on ${spellsAndText} item(s)`);
+      if (spellsAndText) parts.push(`fixed spell scaling, uses or description text on ${spellsAndText} item(s)`);
       if (effects) parts.push(`translated the effects of ${effects} document(s)`);
       if (publishedContent) parts.push(`published ${publishedContent} item(s) to a compendium`);
       ui.notifications.info(`Plutonium ⇄ A5E: repaired earlier imports — ${parts.join(', ')}.`);

@@ -5,7 +5,12 @@ import { addCommonManeuversTo } from './maneuvers.js';
 import { publishImportedContent } from './publish-content.js';
 import { repairQuantityConsumers } from './translate/actions.js';
 import { translateEffects } from './translate/effects.js';
-import { pruneUpdate, translateDocument } from './translate/index.js';
+import {
+  isWholeActorUpdate,
+  pruneUpdate,
+  translateActorUpdate,
+  translateDocument,
+} from './translate/index.js';
 import { ID, debug, log, warn } from './util/log.js';
 
 // Every document Plutonium imports funnels through four static methods on its
@@ -187,6 +192,10 @@ export function installPackImportTranslation() {
 // is translated as a whole instead. Its type is left out: a document's type
 // cannot change, and the one it has is already the a5e one.
 function asUpdate(doc, docUpdate) {
+  // A creature imported into the world is written onto a placeholder actor in
+  // one whole-statblock update — see `isWholeActorUpdate`.
+  if (isWholeActorUpdate(doc, docUpdate)) return translateActorUpdate(doc, docUpdate);
+
   if (doc?.documentName !== 'Item') return docUpdate;
   if (!docUpdate || typeof docUpdate !== 'object' || !('type' in docUpdate)) return docUpdate;
   if (typeof docUpdate.system?.description !== 'object') return docUpdate;

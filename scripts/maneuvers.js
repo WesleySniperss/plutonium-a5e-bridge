@@ -87,6 +87,26 @@ export async function addCommonManeuvers(actor) {
   return payload.length;
 }
 
+// a5e adds these same six itself to every creature created in the world — its
+// `createActor` hook, `addBasicManuevers`, in 1.4.10 and 1.5 alike — and does
+// not wait for anything. The import used to look for them before a5e's had
+// landed, find none, and add its own: two Grapples, two Shoves on every creature.
+// So a5e is given the time it takes first, and only a creature it skipped gets ours.
+const SYSTEM_GRACE_MS = 3000;
+
+function hasUniversal(actor) {
+  return actor.items.some((i) => i.type === 'maneuver' && isUniversal(i));
+}
+
+async function systemHasGiven(actor) {
+  const until = Date.now() + SYSTEM_GRACE_MS;
+  while (Date.now() < until) {
+    if (hasUniversal(actor)) return true;
+    await new Promise((resolve) => { setTimeout(resolve, 250); });
+  }
+  return hasUniversal(actor);
+}
+
 /** Called for every actor an import creates. */
 export async function addCommonManeuversTo(created) {
   if (!enabled() || !game.user?.isGM) return;
@@ -95,7 +115,12 @@ export async function addCommonManeuversTo(created) {
     const doc = entry?.documentName ? entry : entry?.document;
     if (doc?.documentName !== 'Actor' || doc.type !== 'npc') continue;
 
+    // A compendium import builds its actor in memory and hands it to the pack;
+    // there is nothing in the world to add to, and a5e fills in the pack's copy.
+    if (!doc.id || !game.actors?.has(doc.id)) continue;
+
     try {
+      if (await systemHasGiven(doc)) continue;
       const added = await addCommonManeuvers(doc);
       if (added) debug(`Gave "${doc.name}" ${added} common manoeuvre(s).`);
     } catch (e) {

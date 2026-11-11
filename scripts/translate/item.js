@@ -312,13 +312,24 @@ function toSpell(data, ctx) {
   // no limit at all — castable forever. a5e's own conversion of the same
   // monsters fills this in: its Unicorn carries Calm Emotions with
   // `uses: { value: 1, max: "1" }` and an `itemUses` consumer beside the slot.
+  //
+  // An at-will spell has no limit, and Plutonium still writes it a `uses` with an
+  // empty max. Read as a limit, that gave every at-will spell 0 uses and a
+  // consumer to spend them, so a5e warned "not enough uses" at each casting —
+  // and refuses to cast at all in a world that blocks a roll on a warning.
   const uses = convertUses(system.uses);
-  if (uses && String(uses.max) !== "0") {
+  if (hasLimit(uses)) {
     out.uses = uses;
     addUsesConsumer(defaultAction(out.actions), "itemUses");
   }
 
   return out;
+}
+
+/** Whether converted uses actually cap anything: an empty or zero max does not. */
+export function hasLimit(uses) {
+  const max = String(uses?.max ?? '').trim();
+  return max !== '' && max !== '0';
 }
 
 // Two statements of the same progression: keep the advancement, which is data

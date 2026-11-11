@@ -3283,6 +3283,132 @@ test('spell: dnd5e\'s "half" scaling adds dice every other slot — a5e\'s step 
 });
 
 
+// --- creatures imported into the world ---------------------------------------
+//
+// Plutonium never creates a world creature from its data. It creates a
+// placeholder, then writes the whole statblock onto it in one update — and
+// that update was only pruned, so the slots, caster level, languages, creature
+// type and the rest were lost on every creature imported into the world.
+
+const { isWholeActorUpdate, translateActorUpdate } = await import('../scripts/translate/index.js');
+
+// Stands in for Foundry's deletion operator, which Plutonium writes as `_del`.
+const CLEARED = Object.freeze({ deletion: true });
+
+const placeholder = () => ({
+  documentName: 'Actor',
+  type: 'npc',
+  name: 'Importing...',
+  flags: { plutonium: { isImporterTempActor: true }, 'plutonium-a5e': { sourceType: 'npc', converted: true } },
+});
+
+// The shape `_pImportEntry_pGetImportMetadata` builds for the MM Mage: no type,
+// the statblock, and the placeholder's marker cleared in the same write.
+const mageStatblock = () => ({
+  name: 'Mage',
+  img: 'mage.webp',
+  system: {
+    abilities: { int: { value: 17, proficient: 1 }, wis: { value: 12, proficient: 1 } },
+    attributes: {
+      ac: { calc: 'default' },
+      hp: { value: 40, max: 40, formula: '9d8' },
+      movement: { walk: 30, units: 'ft' },
+      senses: { ranges: { darkvision: 0 } },
+      spellcasting: 'int',
+    },
+    details: { cr: 6, spellLevel: 9, type: { value: 'humanoid' }, biography: { value: '<p>A mage.</p>' } },
+    traits: { size: 'med', languages: { value: [], custom: 'any four languages' } },
+    spells: {
+      spell1: { value: 4, max: 4 }, spell2: { value: 3, max: 3 }, spell3: { value: 3, max: 3 },
+      spell4: { value: 3, max: 3 }, spell5: { value: 1, max: 1 },
+    },
+  },
+  flags: { plutonium: { page: 'bestiary.html', source: 'MM', hash: 'mage_mm', isImporterTempActor: CLEARED } },
+});
+
+test('world import: the statblock written onto the placeholder is recognised', () => {
+  assert.equal(isWholeActorUpdate(placeholder(), mageStatblock()), true);
+  // The marker on the update alone is enough — an import over an existing actor.
+  assert.equal(isWholeActorUpdate({ documentName: 'Actor', type: 'npc', flags: {} }, mageStatblock()), true);
+
+  // The Charactermancer's follow-up writes are partial and must stay pruned, not rebuilt.
+  const hero = { documentName: 'Actor', type: 'character', flags: {} };
+  assert.equal(isWholeActorUpdate(hero, { system: { details: { xp: { value: 300 } } } }), false);
+  assert.equal(isWholeActorUpdate(hero, { 'system.attributes.hp.max': 12 }), false);
+  assert.equal(isWholeActorUpdate({ documentName: 'Item', flags: {} }, mageStatblock()), false);
+});
+
+test('world import: a spellcaster keeps its slots and caster level', () => {
+  const out = translateActorUpdate(placeholder(), mageStatblock());
+
+  assert.deepEqual(out.system.spellResources.slots[1], { current: 4, max: 4 });
+  assert.deepEqual(out.system.spellResources.slots[5], { current: 1, max: 1 });
+  assert.deepEqual(out.system.spellResources.slots[6], { current: 0, max: 0 });
+  assert.equal(out.system.attributes.casterLevel, 9);
+  assert.equal(out.system.attributes.spellcasting, 'int');
+  assert.equal(out.system.abilities.int.save.proficient, true);
+});
+
+test('world import: languages, creature type and biography come across too', () => {
+  const out = translateActorUpdate(placeholder(), mageStatblock());
+
+  assert.deepEqual(out.system.proficiencies.languages, ['any four languages']);
+  assert.deepEqual(out.system.details.creatureTypes, ['humanoid']);
+  assert.equal(out.system.details.bio, '<p>A mage.</p>');
+  assert.equal(out.system.attributes.hp.baseMax, 40);
+  assert.equal(out.system.attributes.movement.walk.distance, 30);
+});
+
+test('world import: the update keeps its identity and clears the marker', () => {
+  const out = translateActorUpdate(placeholder(), mageStatblock());
+
+  assert.equal('type' in out, false, 'a document\'s type cannot change in an update');
+  assert.equal(out.name, 'Mage');
+  assert.equal(out.img, 'mage.webp');
+  assert.equal(out.flags.plutonium.isImporterTempActor, CLEARED, 'Plutonium\'s own deletion must reach Foundry');
+  assert.equal(out.flags.plutonium.hash, 'mage_mm');
+  assert.equal(out.flags['plutonium-a5e'].sourceType, 'npc');
+});
+
+test('world import: an actor imported before keeps the type it was imported as', () => {
+  // A vehicle becomes an a5e npc; re-importing over it must still read it as a vehicle.
+  const vehicle = { documentName: 'Actor', type: 'npc', flags: { 'plutonium-a5e': { sourceType: 'vehicle' } } };
+  const out = translateActorUpdate(vehicle, mageStatblock());
+  assert.equal(out.flags['plutonium-a5e'].sourceType, 'vehicle');
+});
+
+test('spell: an at-will spell with an empty max is not given uses to spend', () => {
+  // What Plutonium writes for a creature's at-will spell: a `uses` with no max.
+  // Read as a limit it was 0 uses and an itemUses consumer — a5e warned at every
+  // casting, and refuses outright where a warning blocks the roll.
+  const atWill = translateDocument('Item', {
+    ...fireball,
+    system: { ...fireball.system, method: 'innate', uses: { spent: 0, max: '', recovery: [] } },
+  });
+
+  assert.equal(atWill.system.uses, undefined);
+  const types = Object.values(atWill.system.actions).flatMap((a) => Object.values(a.consumers ?? {}).map((c) => c.type));
+  assert.equal(types.includes('itemUses'), false);
+  assert.ok(types.includes('spell'), 'the slot consumer is a5e\'s own convention and stays');
+});
+
+test('migration: an at-will spell loses the consumer it had nothing to spend with', async () => {
+  const { unlimitedUsesRepair } = await import('../scripts/migrate.js');
+  const spell = (max) => ({
+    type: 'spell',
+    system: {
+      uses: { value: 0, max },
+      actions: { a: { consumers: { s: { type: 'spell', spellLevel: 2 }, u: { type: 'itemUses', quantity: 1 } } } },
+    },
+  });
+
+  const update = unlimitedUsesRepair(spell(''));
+  assert.deepEqual(Object.keys(update), ['system.actions.a.consumers.-=u'], 'only the itemUses consumer goes');
+  assert.equal(unlimitedUsesRepair(spell('1')), null, 'a 1/day spell keeps its');
+  assert.equal(unlimitedUsesRepair({ type: 'feature', system: spell('').system }), null, 'spells only');
+});
+
+
 await Promise.all(running);
 
 for (const { name, e } of failures) {

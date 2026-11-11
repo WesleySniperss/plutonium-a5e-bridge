@@ -450,7 +450,7 @@ async function linkOne(owner, kind, features) {
  * console with red on every rebuild. The old form still works, so it is kept as
  * a fallback for anything older.
  */
-function deletionEntry(path, id) {
+export function deletionEntry(path, id) {
   const ForcedDeletion = foundry?.data?.operators?.ForcedDeletion;
   if (ForcedDeletion) return [`${path}.${id}`, new ForcedDeletion()];
   return [`${path}.-=${id}`, null];

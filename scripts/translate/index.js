@@ -28,6 +28,59 @@ export function translateActorDocument(data) {
   return out;
 }
 
+// The dnd5e actor type a document was imported as. The placeholder Plutonium
+// creates first is translated like any actor, and keeps what it was asked for.
+const DND5E_ACTOR_TYPE = { npc: 'npc', character: 'character' };
+
+/**
+ * Whether an update to an actor is Plutonium writing a whole statblock onto it.
+ *
+ * Importing a creature into the world does not create it from its data.
+ * Plutonium creates a placeholder first, so it has an id to hang items on, and
+ * then writes the whole dnd5e statblock onto it in one update:
+ *
+ *   model.actor = await UtilDocuments.pCreateDocument(Actor, {name: Consts.ACTOR_TEMP_NAME,
+ *     type: …, flags: {[SharedConsts.MODULE_ID]: {isImporterTempActor: true}}}, …);
+ *   …
+ *   MiscUtil.set(actorData, "flags", SharedConsts.MODULE_ID, "isImporterTempActor", globalThis._del);
+ *   await UtilDocuments.pUpdateDocument(model.actor, actorData);
+ *
+ * Pruned key by key, that update lost everything a5e keeps under another name —
+ * spell slots, caster level, languages, creature type, immunities, legendary
+ * actions — so every creature imported into the world arrived with its spells
+ * and nothing to cast them with. Only a compendium import, which builds the
+ * actor from its data, was ever translated whole.
+ *
+ * The write clears the placeholder's marker, which no other update does; a
+ * re-import over a compendium entry carries no marker, but a dnd5e biography
+ * object is not something a5e has.
+ */
+export function isWholeActorUpdate(doc, update) {
+  if (doc?.documentName !== 'Actor') return false;
+  const system = update?.system;
+  if (!system || typeof system !== 'object') return false;
+
+  const marker = update.flags?.plutonium;
+  if (marker && typeof marker === 'object' && Object.hasOwn(marker, 'isImporterTempActor')) return true;
+  if (doc.flags?.plutonium?.isImporterTempActor) return true;
+
+  return !!(system.abilities && system.attributes?.hp && typeof system.details?.biography === 'object');
+}
+
+/**
+ * Translate a whole dnd5e statblock written onto an existing actor, as an
+ * update. Its type is left out: a document's type cannot change, and the one it
+ * has is already the a5e one.
+ */
+export function translateActorUpdate(doc, update) {
+  const sourceType = doc?.flags?.['plutonium-a5e']?.sourceType ?? DND5E_ACTOR_TYPE[doc?.type] ?? 'npc';
+  const translated = safe(() => translateActor({ ...update, type: sourceType }), null, 'Actor');
+  if (!translated?.system) return update;
+
+  const { _id, type, items, ...rest } = translated;
+  return rest;
+}
+
 export function translateItemDocument(data, parent = null) {
   if (parent?.documentName !== 'Actor') return translateItem(data, {});
 
